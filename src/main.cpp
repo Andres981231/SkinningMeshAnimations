@@ -34,6 +34,7 @@ void mouse_scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 void setLightPara(Shader shader, glm::vec3* pointLightPositions);
 void renderJoint(Shader shader, Joint joint,glm::mat4 view, glm::mat4 projection);
 void addJoint();
+void setDefaultJoints();
 
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
@@ -78,7 +79,7 @@ void mouse_scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
 		firstScroll = false;
 	}
 	float temp = yoffset - lastScrollY;
-	if (mode == 1) {
+	/*if (mode == 1) {
 		if (temp > 0) {
 			currentID += 1;
 			if (currentID > Joint_List.size()) { currentID = Joint_List.size(); }
@@ -89,7 +90,7 @@ void mouse_scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
 		}
 		printf("current parent joint: %d, ", currentParent);
 		printf("current choosen joint: %d\n", currentID);
-	}
+	}*/
 }
 
 void mouse_callback(GLFWwindow* window, double xpos, double ypos)
@@ -141,6 +142,34 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 				currentParent = currentID;
 			printf("current parent joint: %d\n", currentParent);
 		}
+		if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
+			currentID += 1;
+			if (currentID > Joint_List.size()) { currentID = -1; }
+			printf("current parent joint: %d, ", currentParent);
+			printf("current choosen joint: %d\n", currentID);
+		}
+		else if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
+			currentID -= 1;
+			if (currentID < -1) { currentID = Joint_List.size(); }
+			printf("current parent joint: %d, ", currentParent);
+			printf("current choosen joint: %d\n", currentID);
+		}
+		if (glfwGetKey(window, GLFW_KEY_N) == GLFW_PRESS) {
+			currentID = Joint_List.size();
+			printf("click to create a new joint\n");
+		}
+		if (glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS) {
+			if (currentID != -1 && currentID != Joint_List.size()) {
+				Joint temp = Joint_List[currentID];
+				printf("joint information:\nid: %d,parent id: %d\nposition: %f, %f, %f\n\n", temp.ID, temp.parent_ID, temp.position.x, temp.position.y, temp.position.z);
+			}
+		}
+		if (glfwGetKey(window, GLFW_KEY_ENTER) == GLFW_PRESS) {
+			for (int i = 0; i < Joint_List.size(); i++) {
+				Joint temp = Joint_List[i];
+				printf("joint information:\nid: %d,parent id: %d\nposition: %f, %f, %f\n\n", temp.ID, temp.parent_ID, temp.position.x, temp.position.y, temp.position.z);
+			}
+		}
 	}
 }
 
@@ -149,7 +178,7 @@ void processInput(GLFWwindow* window, Shader my_shader)
 	/*currentFrame = glfwGetTime();
 	deltaTime = currentFrame - lastFrame;
 	lastFrame = currentFrame;*/
-	float cameraSpeed = 2.0f * deltaTime; // adjust accordingly
+	float cameraSpeed = 1.0f * deltaTime; // adjust accordingly
 	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
 		glfwSetWindowShouldClose(window, true);
 	if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
@@ -242,6 +271,8 @@ int main()
 		mode = 0;
 		printf("camera mode, use wasd and mouse to look around.\n");
 	}
+	// set default joints
+	setDefaultJoints();
     // glfw: initialize and configure
     // ------------------------------
     glfwInit();
@@ -517,40 +548,42 @@ int main()
 			renderJoint(jointShader, Joint_List[i], view, projection);
 		}
 		// target
-		jointShader.use();
-		jointShader.setMat4("projection", projection);
-		jointShader.setMat4("view", view);
-		jointShader.setVec3("Color", 0.4, 0.4, 0.8);
-		model = glm::mat4(1.0f);
-		model = glm::translate(model, cameraPos + glm::vec3(0.2f)*glm::normalize(cameraFront));
-		model = glm::scale(model, glm::vec3(0.01f));
-		jointShader.setMat4("model", model);
-		jointShader.setFloat("alpha", 0.5);
-		glDrawArrays(GL_TRIANGLES, 0, 36);
-		// render three direction
-		jointShader.setVec3("Color", 1.0, 0, 0);
-		model = glm::mat4(1.0f);
-		model = glm::translate(model, cameraPos + glm::vec3(0.2f) * glm::normalize(cameraFront) + glm::vec3(0.01f, 0, 0));
-		model = glm::scale(model, glm::vec3(0.005f));
-		jointShader.setMat4("model", model);
-		jointShader.setFloat("alpha", 0.5);
-		glDrawArrays(GL_TRIANGLES, 0, 36);
-		//
-		jointShader.setVec3("Color", 0, 1, 0);
-		model = glm::mat4(1.0f);
-		model = glm::translate(model, cameraPos + glm::vec3(0.2f) * glm::normalize(cameraFront) + glm::vec3(0, 0.01f, 0));
-		model = glm::scale(model, glm::vec3(0.005f));
-		jointShader.setMat4("model", model);
-		jointShader.setFloat("alpha", 0.5);
-		glDrawArrays(GL_TRIANGLES, 0, 36);
-		//
-		jointShader.setVec3("Color", 0, 0, 1);
-		model = glm::mat4(1.0f);
-		model = glm::translate(model, cameraPos + glm::vec3(0.2f) * glm::normalize(cameraFront) + glm::vec3(0, 0, 0.01f));
-		model = glm::scale(model, glm::vec3(0.005f));
-		jointShader.setMat4("model", model);
-		jointShader.setFloat("alpha", 0.5);
-		glDrawArrays(GL_TRIANGLES, 0, 36);
+		if (mode == 1) {
+			jointShader.use();
+			jointShader.setMat4("projection", projection);
+			jointShader.setMat4("view", view);
+			jointShader.setVec3("Color", 0.4, 0.4, 0.8);
+			model = glm::mat4(1.0f);
+			model = glm::translate(model, cameraPos + glm::vec3(0.2f) * glm::normalize(cameraFront));
+			model = glm::scale(model, glm::vec3(0.01f));
+			jointShader.setMat4("model", model);
+			jointShader.setFloat("alpha", 0.5);
+			glDrawArrays(GL_TRIANGLES, 0, 36);
+			// render three direction
+			jointShader.setVec3("Color", 1.0, 0, 0);
+			model = glm::mat4(1.0f);
+			model = glm::translate(model, cameraPos + glm::vec3(0.2f) * glm::normalize(cameraFront) + glm::vec3(0.01f, 0, 0));
+			model = glm::scale(model, glm::vec3(0.005f));
+			jointShader.setMat4("model", model);
+			jointShader.setFloat("alpha", 0.5);
+			glDrawArrays(GL_TRIANGLES, 0, 36);
+			//
+			jointShader.setVec3("Color", 0, 1, 0);
+			model = glm::mat4(1.0f);
+			model = glm::translate(model, cameraPos + glm::vec3(0.2f) * glm::normalize(cameraFront) + glm::vec3(0, 0.01f, 0));
+			model = glm::scale(model, glm::vec3(0.005f));
+			jointShader.setMat4("model", model);
+			jointShader.setFloat("alpha", 0.5);
+			glDrawArrays(GL_TRIANGLES, 0, 36);
+			//
+			jointShader.setVec3("Color", 0, 0, 1);
+			model = glm::mat4(1.0f);
+			model = glm::translate(model, cameraPos + glm::vec3(0.2f) * glm::normalize(cameraFront) + glm::vec3(0, 0, 0.01f));
+			model = glm::scale(model, glm::vec3(0.005f));
+			jointShader.setMat4("model", model);
+			jointShader.setFloat("alpha", 0.5);
+			glDrawArrays(GL_TRIANGLES, 0, 36);
+		}
 
 
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -721,4 +754,65 @@ void addJoint() {
 		if(currentID != -1)
 			Joint_List[currentID].position = cameraPos + glm::vec3(0.2f) * glm::normalize(cameraFront);
 	}
+}
+
+void setDefaultJoints() {
+	Joint newj(0, -1, glm::vec3(0.001691f, 0.566665f, 0.021455f));
+	Joint_List.push_back(newj);
+	newj = Joint(1, 0, glm::vec3(-0.000819, 0.481337, 0.121768));
+	Joint_List.push_back(newj);
+	newj = Joint(2, 1, glm::vec3(-0.001076, 0.654315, 0.155140));
+	Joint_List.push_back(newj);
+	newj = Joint(3, 2, glm::vec3(0.000657, 0.735756, 0.256516));
+	Joint_List.push_back(newj);
+	newj = Joint(4, 3, glm::vec3(-0.001294, 0.635072, 0.362139));
+	Joint_List.push_back(newj);
+	newj = Joint(5, 0, glm::vec3(-0.043955, 0.440327, 0.161949));
+	Joint_List.push_back(newj);
+	newj = Joint(6, 5, glm::vec3(-0.077542, 0.370297, 0.094476));
+	Joint_List.push_back(newj);
+	newj = Joint(7, 6, glm::vec3(-0.075867, 0.210244, 0.046379));
+	Joint_List.push_back(newj);
+	newj = Joint(8, 7, glm::vec3(-0.070106, 0.089600, 0.017584));
+	Joint_List.push_back(newj);
+	newj = Joint(9, 8, glm::vec3(-0.069601, 0.045441, 0.021094));
+	Joint_List.push_back(newj);
+	newj = Joint(10, 0, glm::vec3(0.052980, 0.442547, 0.160829));
+	Joint_List.push_back(newj);
+	newj = Joint(11, 10, glm::vec3(0.073885, 0.371108, 0.159506));
+	Joint_List.push_back(newj);
+	newj = Joint(12, 11, glm::vec3(0.070374, 0.232418, 0.290771));
+	Joint_List.push_back(newj);
+	newj = Joint(13, 12, glm::vec3(0.070706, 0.152662, 0.378457));
+	Joint_List.push_back(newj);
+	newj = Joint(14, 13, glm::vec3(0.069522, 0.105653, 0.415685));
+	Joint_List.push_back(newj);
+	newj = Joint(15, 0, glm::vec3(0.000392, 0.584464, -0.234979));
+	Joint_List.push_back(newj);
+	newj = Joint(16, 15, glm::vec3(-0.082763, 0.527925, -0.253043));
+	Joint_List.push_back(newj);
+	newj = Joint(17, 16, glm::vec3(-0.077468, 0.402789, -0.333127));
+	Joint_List.push_back(newj);
+	newj = Joint(18, 17, glm::vec3(-0.065810, 0.296157, -0.466499));
+	Joint_List.push_back(newj);
+	newj = Joint(19, 18, glm::vec3(-0.069273, 0.141381, -0.531791));
+	Joint_List.push_back(newj);
+	newj = Joint(20, 19, glm::vec3(-0.064983, 0.126961, -0.584126));
+	Joint_List.push_back(newj);
+	newj = Joint(21, 15, glm::vec3(0.081760, 0.524731, -0.259197));
+	Joint_List.push_back(newj);
+	newj = Joint(22, 21, glm::vec3(0.065342, 0.392328, -0.304268));
+	Joint_List.push_back(newj);
+	newj = Joint(23, 22, glm::vec3(0.069011, 0.247179, -0.386741));
+	Joint_List.push_back(newj);
+	newj = Joint(24, 23, glm::vec3(0.063263, 0.091644, -0.419300));
+	Joint_List.push_back(newj);
+	newj = Joint(25, 24, glm::vec3(0.061767, 0.040162, -0.433945));
+	Joint_List.push_back(newj);
+	newj = Joint(26, 15, glm::vec3(0.001431, 0.575117, -0.384786));
+	Joint_List.push_back(newj);
+	newj = Joint(27, 26, glm::vec3(0.007507, 0.619909, -0.439229));
+	Joint_List.push_back(newj);
+	newj = Joint(28, 27, glm::vec3(0.015131, 0.634682, -0.548828));
+	Joint_List.push_back(newj);
 }
