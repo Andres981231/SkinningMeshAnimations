@@ -35,6 +35,9 @@ void setLightPara(Shader shader, glm::vec3* pointLightPositions);
 void renderJoint(Shader shader, Joint joint,glm::mat4 view, glm::mat4 projection);
 void addJoint();
 void setDefaultJoints();
+void buildJoints();
+void updateJoint();
+glm::mat4 get_parent_globalM(Joint joint);
 
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
@@ -57,7 +60,7 @@ float currentFrame;
 float yaw = -90.0;
 float pitch = 0;
 // static 
-int mode = -1; //0-camera mode, 1-edit mode
+int mode = -1; //0-camera mode, 1-edit mode, 2-operate mode
 int currentParent = -1;
 int currentID = 0;
 std::vector<Joint> Joint_List;
@@ -132,9 +135,32 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 		transparencySwitch = 0;
 		//printf("not transparent now\n");
 	}
+	if (glfwGetKey(window, GLFW_KEY_0) == GLFW_PRESS) {
+		mode = 0;
+		printf("camera mode, use wasd and mouse to look around.\n");
+	}
 	if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS) {
 		mode = 1;
 		printf("edit mode: set joint manually\n");
+	}
+	if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS) {
+		mode = 2;
+		currentID = 0;
+		printf("operate mode: control joints to move or rotate\n");
+	}
+	if (mode == 0) {
+		if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
+			currentID += 1;
+			if (currentID > Joint_List.size() - 1) { currentID = 0; }
+			printf("current parent joint: %d, ", currentParent);
+			printf("current choosen joint: %d\n", currentID);
+		}
+		else if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
+			currentID -= 1;
+			if (currentID < 0) { currentID = Joint_List.size() - 1; }
+			printf("current parent joint: %d, ", currentParent);
+			printf("current choosen joint: %d\n", currentID);
+		}
 	}
 	if (mode == 1) {
 		if (glfwGetKey(window, GLFW_KEY_P) == GLFW_PRESS) {
@@ -171,6 +197,20 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 			}
 		}
 	}
+	if (mode == 2) {
+		if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
+			currentID += 1;
+			if (currentID > Joint_List.size()-1) { currentID = 0; }
+			printf("current parent joint: %d, ", currentParent);
+			printf("current choosen joint: %d\n", currentID);
+		}
+		else if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
+			currentID -= 1;
+			if (currentID < 0) { currentID = Joint_List.size()-1; }
+			printf("current parent joint: %d, ", currentParent);
+			printf("current choosen joint: %d\n", currentID);
+		}
+	}
 }
 
 void processInput(GLFWwindow* window, Shader my_shader)
@@ -178,17 +218,70 @@ void processInput(GLFWwindow* window, Shader my_shader)
 	/*currentFrame = glfwGetTime();
 	deltaTime = currentFrame - lastFrame;
 	lastFrame = currentFrame;*/
-	float cameraSpeed = 1.0f * deltaTime; // adjust accordingly
-	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-		glfwSetWindowShouldClose(window, true);
-	if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-		cameraPos += cameraSpeed * cameraFront;
-	if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-		cameraPos -= cameraSpeed * cameraFront;
-	if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-		cameraPos -= glm::normalize(glm::cross(cameraFront, cameraUp)) * cameraSpeed;
-	if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-		cameraPos += glm::normalize(glm::cross(cameraFront, cameraUp)) * cameraSpeed;
+	if (mode != 2) {	// move camera
+		float cameraSpeed = 1.0f * deltaTime; // adjust accordingly
+		if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+			glfwSetWindowShouldClose(window, true);
+		if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+			cameraPos += cameraSpeed * cameraFront;
+		if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+			cameraPos -= cameraSpeed * cameraFront;
+		if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+			cameraPos -= glm::normalize(glm::cross(cameraFront, cameraUp)) * cameraSpeed;
+		if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+			cameraPos += glm::normalize(glm::cross(cameraFront, cameraUp)) * cameraSpeed;
+	}
+	if (mode == 2) {
+		float rotateSpeed = 15.0f * deltaTime;
+		if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) { // around forward axis
+			glm::mat4 ro = glm::mat4(1.0f);
+			ro = glm::rotate(ro, glm::radians(rotateSpeed), Joint_List[currentID].forward);
+			Joint_List[currentID].up = glm::vec3(ro * glm::vec4(Joint_List[currentID].up,0.0f));
+			Joint_List[currentID].right = glm::vec3(ro * glm::vec4(Joint_List[currentID].right, 0.0f));
+			Joint_List[currentID].LocalMatrix[1] = glm::vec4(Joint_List[currentID].up,0.0f);
+			Joint_List[currentID].LocalMatrix[2] = glm::vec4(Joint_List[currentID].right, 0.0f);
+		}	
+		if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
+			glm::mat4 ro = glm::mat4(1.0f);
+			ro = glm::rotate(ro, glm::radians(-rotateSpeed), Joint_List[currentID].forward);
+			Joint_List[currentID].up = glm::vec3(ro * glm::vec4(Joint_List[currentID].up, 0.0f));
+			Joint_List[currentID].right = glm::vec3(ro * glm::vec4(Joint_List[currentID].right, 0.0f));
+			Joint_List[currentID].LocalMatrix[1] = glm::vec4(Joint_List[currentID].up, 0.0f);
+			Joint_List[currentID].LocalMatrix[2] = glm::vec4(Joint_List[currentID].right, 0.0f);
+		}
+		if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
+			glm::mat4 ro = glm::mat4(1.0f);
+			ro = glm::rotate(ro, glm::radians(rotateSpeed), Joint_List[currentID].up);
+			Joint_List[currentID].forward = glm::vec3(ro * glm::vec4(Joint_List[currentID].forward, 0.0f));
+			Joint_List[currentID].right = glm::vec3(ro * glm::vec4(Joint_List[currentID].right, 0.0f));
+			Joint_List[currentID].LocalMatrix[0] = glm::vec4(Joint_List[currentID].forward, 0.0f);
+			Joint_List[currentID].LocalMatrix[2] = glm::vec4(Joint_List[currentID].right, 0.0f);
+		}
+		if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
+			glm::mat4 ro = glm::mat4(1.0f);
+			ro = glm::rotate(ro, glm::radians(-rotateSpeed), Joint_List[currentID].up);
+			Joint_List[currentID].forward = glm::vec3(ro * glm::vec4(Joint_List[currentID].forward, 0.0f));
+			Joint_List[currentID].right = glm::vec3(ro * glm::vec4(Joint_List[currentID].right, 0.0f));
+			Joint_List[currentID].LocalMatrix[0] = glm::vec4(Joint_List[currentID].forward, 0.0f);
+			Joint_List[currentID].LocalMatrix[2] = glm::vec4(Joint_List[currentID].right, 0.0f);
+		}
+		if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) {
+			glm::mat4 ro = glm::mat4(1.0f);
+			ro = glm::rotate(ro, glm::radians(rotateSpeed), Joint_List[currentID].right);
+			Joint_List[currentID].forward = glm::vec3(ro * glm::vec4(Joint_List[currentID].forward, 0.0f));
+			Joint_List[currentID].up = glm::vec3(ro * glm::vec4(Joint_List[currentID].up, 0.0f));
+			Joint_List[currentID].LocalMatrix[0] = glm::vec4(Joint_List[currentID].forward, 0.0f);
+			Joint_List[currentID].LocalMatrix[1] = glm::vec4(Joint_List[currentID].up, 0.0f);
+		}
+		if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) {
+			glm::mat4 ro = glm::mat4(1.0f);
+			ro = glm::rotate(ro, glm::radians(-rotateSpeed), Joint_List[currentID].right);
+			Joint_List[currentID].forward = glm::vec3(ro * glm::vec4(Joint_List[currentID].forward, 0.0f));
+			Joint_List[currentID].up = glm::vec3(ro * glm::vec4(Joint_List[currentID].up, 0.0f));
+			Joint_List[currentID].LocalMatrix[0] = glm::vec4(Joint_List[currentID].forward, 0.0f);
+			Joint_List[currentID].LocalMatrix[1] = glm::vec4(Joint_List[currentID].up, 0.0f);
+		}
+	}
 }
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
@@ -266,13 +359,27 @@ void get_vec2(std::vector<float> list, std::vector<glm::vec2>& vec)
 
 int main()
 {
+	//
+	/*glm::vec3 t1(1, 0, 0);
+	glm::vec3 t2(0, 1, 0);
+	glm::vec3 t3(1, 1, 1);
+	glm::mat3 m;
+	m[0] = t1; m[1] = t2; m[2] = t3;
+	glm::vec3 t(1, 1, 1);
+	glm::mat4 result = m * m;
+
+	printf("%f, %f, %f\n", result[0][0], result[0][1], result[0][2]);
+	printf("%f, %f, %f\n", result[1][0], result[1][1], result[1][2]);
+	printf("%f, %f, %f\n", result[2][0], result[2][1], result[2][2]);*/
 	//mode process
 	if (mode == -1) {
 		mode = 0;
 		printf("camera mode, use wasd and mouse to look around.\n");
 	}
-	// set default joints
+	// set default joints with global position
 	setDefaultJoints();
+	// after all joints are set, build local position and matrix for all of them
+	buildJoints();
     // glfw: initialize and configure
     // ------------------------------
     glfwInit();
@@ -500,7 +607,8 @@ int main()
         // input
         // -----
         processInput(window,my_shader);
-
+		// update global matrix
+		updateJoint();
         // render
         // ------
         glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
@@ -705,7 +813,10 @@ void renderJoint(Shader shader, Joint joint ,glm::mat4 view, glm::mat4 projectio
 	}
 	
 	glm::mat4 model = glm::mat4(1.0f);
-	model = glm::translate(model, joint.position);
+	glm::vec4 temp = get_parent_globalM(joint) * glm::vec4(joint.local_position, 1.0f);
+	//printf("%f, %f, %f\n", temp[0], temp[1], temp[2]);
+	glm::vec3 changedPosition = glm::vec3(temp);
+	model = glm::translate(model, changedPosition);
 	model = glm::scale(model, glm::vec3(0.01f));
 	shader.setMat4("model", model);
 	shader.setFloat("alpha", 1);
@@ -713,7 +824,8 @@ void renderJoint(Shader shader, Joint joint ,glm::mat4 view, glm::mat4 projectio
 	// render three direction
 	shader.setVec3("Color", 1.0, 0, 0);
 	model = glm::mat4(1.0f);
-	model = glm::translate(model, joint.position + glm::vec3(0.01f, 0, 0));
+	temp = get_parent_globalM(joint) * glm::vec4(joint.forward, 0.0f);
+	model = glm::translate(model, changedPosition + 0.01f* glm::normalize(glm::vec3(temp)));
 	model = glm::scale(model, glm::vec3(0.005f));
 	shader.setMat4("model", model);
 	shader.setFloat("alpha", 1);
@@ -721,7 +833,8 @@ void renderJoint(Shader shader, Joint joint ,glm::mat4 view, glm::mat4 projectio
 	//
 	shader.setVec3("Color", 0, 1, 0);
 	model = glm::mat4(1.0f);
-	model = glm::translate(model, joint.position + glm::vec3(0, 0.01f, 0));
+	temp = get_parent_globalM(joint) * glm::vec4(joint.up, 0.0f);
+	model = glm::translate(model, changedPosition + 0.01f* glm::normalize(glm::vec3(temp)));
 	model = glm::scale(model, glm::vec3(0.005f));
 	shader.setMat4("model", model);
 	shader.setFloat("alpha", 1);
@@ -729,7 +842,8 @@ void renderJoint(Shader shader, Joint joint ,glm::mat4 view, glm::mat4 projectio
 	//
 	shader.setVec3("Color", 0, 0, 1);
 	model = glm::mat4(1.0f);
-	model = glm::translate(model, joint.position + glm::vec3(0, 0, 0.01f));
+	temp =  get_parent_globalM(joint) * glm::vec4(joint.right, 0.0f);
+	model = glm::translate(model, changedPosition + 0.01f* glm::normalize(glm::vec3(temp)));
 	model = glm::scale(model, glm::vec3(0.005f));
 	shader.setMat4("model", model);
 	shader.setFloat("alpha", 1);
@@ -815,4 +929,95 @@ void setDefaultJoints() {
 	Joint_List.push_back(newj);
 	newj = Joint(28, 27, glm::vec3(0.015131, 0.634682, -0.548828));
 	Joint_List.push_back(newj);
+}
+
+// after all joints are set, build local position and matrix for all of them
+void buildJoints() {
+	for (int i = 0; i < Joint_List.size(); ++i)
+	{
+		
+		if (Joint_List[i].parent_ID == -1) {
+			Joint_List[i].local_position = Joint_List[i].position;
+			Joint_List[i].LocalMatrix[0] = glm::vec4(Joint_List[i].forward, 0.0f);
+			Joint_List[i].LocalMatrix[1] = glm::vec4(Joint_List[i].up, 0.0f);
+			Joint_List[i].LocalMatrix[2] = glm::vec4(Joint_List[i].right, 0.0f);
+			Joint_List[i].LocalMatrix[3] = glm::vec4(Joint_List[i].local_position, 1.0f);
+			//joint.LocalMatrix = glm::transpose(joint.LocalMatrix);
+			Joint_List[i].GlobalMatrix = Joint_List[i].LocalMatrix;
+			Joint_List[i].restGlobalMatrix = Joint_List[i].GlobalMatrix;
+			/*printf("joint %d local matrix:\n", i);
+			printf("%f, %f, %f, %f\n", joint.LocalMatrix[0][0], joint.LocalMatrix[0][1], joint.LocalMatrix[0][2], joint.LocalMatrix[0][3]);
+			printf("%f, %f, %f, %f\n", joint.LocalMatrix[1][0], joint.LocalMatrix[1][1], joint.LocalMatrix[1][2], joint.LocalMatrix[1][3]);
+			printf("%f, %f, %f, %f\n", joint.LocalMatrix[2][0], joint.LocalMatrix[2][1], joint.LocalMatrix[2][2], joint.LocalMatrix[2][3]);
+			printf("%f, %f, %f, %f\n", joint.LocalMatrix[3][0], joint.LocalMatrix[3][1], joint.LocalMatrix[3][2], joint.LocalMatrix[3][3]);
+			printf("joint %d parent global matrix:\n", i);
+			printf("joint %d global matrix:\n", i);
+			printf("%f, %f, %f, %f\n", joint.GlobalMatrix[0][0], joint.GlobalMatrix[0][1], joint.GlobalMatrix[0][2], joint.GlobalMatrix[0][3]);
+			printf("%f, %f, %f, %f\n", joint.GlobalMatrix[1][0], joint.GlobalMatrix[1][1], joint.GlobalMatrix[1][2], joint.GlobalMatrix[1][3]);
+			printf("%f, %f, %f, %f\n", joint.GlobalMatrix[2][0], joint.GlobalMatrix[2][1], joint.GlobalMatrix[2][2], joint.GlobalMatrix[2][3]);
+			printf("%f, %f, %f, %f\n", joint.GlobalMatrix[3][0], joint.GlobalMatrix[3][1], joint.GlobalMatrix[3][2], joint.GlobalMatrix[3][3]);*/
+		}
+		else {
+			Joint_List[i].local_position = Joint_List[i].position - Joint_List[Joint_List[i].parent_ID].position;
+			//printf("%f, %f, %f\n", joint.local_position[0], joint.local_position[1], joint.local_position[2]);
+			Joint_List[i].LocalMatrix[0] = glm::vec4(Joint_List[i].forward, 0.0f);
+			Joint_List[i].LocalMatrix[1] = glm::vec4(Joint_List[i].up, 0.0f);
+			Joint_List[i].LocalMatrix[2] = glm::vec4(Joint_List[i].right, 0.0f);
+			Joint_List[i].LocalMatrix[3] = glm::vec4(Joint_List[i].local_position, 1.0f);
+			//joint.LocalMatrix = glm::transpose(joint.LocalMatrix);
+			/*printf("joint %d local matrix:\n", i);
+			printf("%f, %f, %f, %f\n", joint.LocalMatrix[0][0], joint.LocalMatrix[0][1], joint.LocalMatrix[0][2], joint.LocalMatrix[0][3]);
+			printf("%f, %f, %f, %f\n", joint.LocalMatrix[1][0], joint.LocalMatrix[1][1], joint.LocalMatrix[1][2], joint.LocalMatrix[1][3]);
+			printf("%f, %f, %f, %f\n", joint.LocalMatrix[2][0], joint.LocalMatrix[2][1], joint.LocalMatrix[2][2], joint.LocalMatrix[2][3]);
+			printf("%f, %f, %f, %f\n", joint.LocalMatrix[3][0], joint.LocalMatrix[3][1], joint.LocalMatrix[3][2], joint.LocalMatrix[3][3]);
+			printf("joint %d's parent %d global matrix:\n", i, joint.parent_ID);*/
+			//Joint parent = Joint_List[Joint_List[i].parent_ID];
+			/*printf("%f, %f, %f, %f\n", parent.GlobalMatrix[0][0], parent.GlobalMatrix[0][1], parent.GlobalMatrix[0][2], parent.GlobalMatrix[0][3]);
+			printf("%f, %f, %f, %f\n", parent.GlobalMatrix[1][0], parent.GlobalMatrix[1][1], parent.GlobalMatrix[1][2], parent.GlobalMatrix[1][3]);
+			printf("%f, %f, %f, %f\n", parent.GlobalMatrix[2][0], parent.GlobalMatrix[2][1], parent.GlobalMatrix[2][2], parent.GlobalMatrix[2][3]);
+			printf("%f, %f, %f, %f\n", parent.GlobalMatrix[3][0], parent.GlobalMatrix[3][1], parent.GlobalMatrix[3][2], parent.GlobalMatrix[3][3]);*/
+			Joint_List[i].GlobalMatrix =  Joint_List[Joint_List[i].parent_ID].GlobalMatrix * Joint_List[i].LocalMatrix;
+			/*printf("joint %d's parent %d local matrix:\n", i, joint.parent_ID);
+			printf("%f, %f, %f, %f\n", parent.LocalMatrix[0][0], parent.LocalMatrix[0][1], parent.LocalMatrix[0][2], parent.LocalMatrix[0][3]);
+			printf("%f, %f, %f, %f\n", parent.LocalMatrix[1][0], parent.LocalMatrix[1][1], parent.LocalMatrix[1][2], parent.LocalMatrix[1][3]);
+			printf("%f, %f, %f, %f\n", parent.LocalMatrix[2][0], parent.LocalMatrix[2][1], parent.LocalMatrix[2][2], parent.LocalMatrix[2][3]);
+			printf("%f, %f, %f, %f\n", parent.LocalMatrix[3][0], parent.LocalMatrix[3][1], parent.LocalMatrix[3][2], parent.LocalMatrix[3][3]);
+			printf("joint %d's parent %d local position:\n", i, joint.parent_ID);
+			printf("%f ,%f , %f\n", parent.local_position[0], parent.local_position[1], parent.local_position[2]);*/
+
+			/*printf("joint %d's parent %d global matrix:\n", i, joint.parent_ID);
+			printf("joint %d global matrix:\n",i);
+			printf("%f, %f, %f, %f\n", joint.GlobalMatrix[0][0], joint.GlobalMatrix[0][1], joint.GlobalMatrix[0][2],joint.GlobalMatrix[0][3]);
+			printf("%f, %f, %f, %f\n", joint.GlobalMatrix[1][0], joint.GlobalMatrix[1][1], joint.GlobalMatrix[1][2], joint.GlobalMatrix[1][3]);
+			printf("%f, %f, %f, %f\n", joint.GlobalMatrix[2][0], joint.GlobalMatrix[2][1], joint.GlobalMatrix[2][2], joint.GlobalMatrix[2][3]);
+			printf("%f, %f, %f, %f\n", joint.GlobalMatrix[3][0], joint.GlobalMatrix[3][1], joint.GlobalMatrix[3][2], joint.GlobalMatrix[3][3]);*/
+			Joint_List[i].restGlobalMatrix = Joint_List[i].GlobalMatrix;
+		}
+		/*printf("joint %d global matrix:\n",i);
+		printf("%f, %f, %f, %f\n", joint.GlobalMatrix[0][0], joint.GlobalMatrix[0][1], joint.GlobalMatrix[0][2],joint.GlobalMatrix[0][3]);
+		printf("%f, %f, %f, %f\n", joint.GlobalMatrix[1][0], joint.GlobalMatrix[1][1], joint.GlobalMatrix[1][2], joint.GlobalMatrix[1][3]);
+		printf("%f, %f, %f, %f\n", joint.GlobalMatrix[2][0], joint.GlobalMatrix[2][1], joint.GlobalMatrix[2][2], joint.GlobalMatrix[2][3]);
+		printf("%f, %f, %f, %f\n", joint.GlobalMatrix[3][0], joint.GlobalMatrix[3][1], joint.GlobalMatrix[3][2], joint.GlobalMatrix[3][3]);*/
+	}
+}
+
+void updateJoint() {
+	for (int i = 0; i < Joint_List.size(); ++i)
+	{
+		if (Joint_List[i].parent_ID == -1) {
+			Joint_List[i].GlobalMatrix = Joint_List[i].LocalMatrix;
+		}
+		else {
+			Joint_List[i].GlobalMatrix = Joint_List[Joint_List[i].parent_ID].GlobalMatrix * Joint_List[i].LocalMatrix;
+		}
+	}
+}
+
+glm::mat4 get_parent_globalM(Joint joint) {
+	if (joint.parent_ID == -1) {
+		return glm::mat4(1.0f);
+	}
+	else {
+		return Joint_List[joint.parent_ID].GlobalMatrix;
+	}
 }
