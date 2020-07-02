@@ -486,7 +486,108 @@ int main()
 			// one triangle one calculation
 			
 			// the other two vertices
-			
+
+			// find nearest joint first
+			float nearest_dist = 9999;
+			int nearest_joint;
+			for (int k = 0; k < Joint_List.size(); k++) {
+				float dist = pow(pow((out_vertices[j].x - Joint_List[k].position.x), 2) +
+					pow((out_vertices[j].y - Joint_List[k].position.y), 2) +
+					pow((out_vertices[j].z - Joint_List[k].position.z), 2), 0.5f);
+				if (dist < nearest_dist) {
+					nearest_dist = dist;
+					nearest_joint = k;
+				}
+			}
+			// find nearest child joint
+			nearest_dist = 9999;
+			int nearest_child = -1;
+			std::vector<int> childList = Joint_List[nearest_joint].child_list;
+			for (int k = 0; k < childList.size(); k++) {
+				int child_id = childList[k];
+				float dist = pow(pow((out_vertices[j].x - Joint_List[child_id].position.x), 2) +
+					pow((out_vertices[j].y - Joint_List[child_id].position.y), 2) +
+					pow((out_vertices[j].z - Joint_List[child_id].position.z), 2), 0.5f);
+				if (dist < nearest_dist) {
+					nearest_dist = dist;
+					nearest_child = child_id;
+				}
+			}
+
+			// calc bone's weight for the vertice
+			float bone1_weight, bone2_weight;
+			float bone1_dist = 9999;
+			float bone2_dist = 9999;
+
+			if (nearest_child != -1)
+			{
+				glm::vec3 bone1_center((Joint_List[nearest_joint].position.x + Joint_List[nearest_child].position.x) / 2,
+					(Joint_List[nearest_joint].position.y + Joint_List[nearest_child].position.y) / 2,
+					(Joint_List[nearest_joint].position.z + Joint_List[nearest_child].position.z) / 2);
+				bone1_dist = pow(pow((out_vertices[j].x - bone1_center.x), 2) +
+					pow((out_vertices[j].y - bone1_center.y), 2) +
+					pow((out_vertices[j].z - bone1_center.z), 2), 0.5f);
+			}
+			int parent_id = Joint_List[nearest_joint].parent_ID;
+			if (parent_id != -1)
+			{
+				glm::vec3 bone2_center((Joint_List[nearest_joint].position.x + Joint_List[parent_id].position.x) / 2,
+					(Joint_List[nearest_joint].position.y + Joint_List[parent_id].position.y) / 2,
+					(Joint_List[nearest_joint].position.z + Joint_List[parent_id].position.z) / 2);
+				bone2_dist = pow(pow((out_vertices[j].x - bone2_center.x), 2) +
+					pow((out_vertices[j].y - bone2_center.y), 2) +
+					pow((out_vertices[j].z - bone2_center.z), 2), 0.5f);
+			}
+			// calc bones' weight according to the distance from vertice to bone's center
+			bone1_weight = 1 - (bone1_dist / (bone1_dist + bone2_dist));
+			bone2_weight = 1 - bone1_weight;
+
+			// calc joint weight to weight painting
+			float joint_weight1, joint_weight2;
+			float joint_dist1, joint_dist2;
+			if (bone1_dist > bone2_dist)
+			{
+				joint_dist1 = pow(pow((out_vertices[j].x - Joint_List[parent_id].position.x), 2) +
+					pow((out_vertices[j].y - Joint_List[parent_id].position.y), 2) +
+					pow((out_vertices[j].z - Joint_List[parent_id].position.z), 2), 0.5f);
+				joint_dist2 = pow(pow((out_vertices[j].x - Joint_List[nearest_joint].position.x), 2) +
+					pow((out_vertices[j].y - Joint_List[nearest_joint].position.y), 2) +
+					pow((out_vertices[j].z - Joint_List[nearest_joint].position.z), 2), 0.5f);
+				joint_weight1 = 1 - (joint_dist1 / (joint_dist1 + joint_dist2));
+				joint_weight2 = 1 - joint_weight1;
+
+				// push three joints
+				tVertices.push_back(parent_id);
+				tVertices.push_back(nearest_joint);
+				tVertices.push_back(nearest_child);
+				// push joint weights
+				tVertices.push_back(joint_weight1);
+				tVertices.push_back(joint_weight2);
+				// push bone weights
+				tVertices.push_back(bone2_weight);
+				tVertices.push_back(bone1_weight);
+			}
+			else {
+				joint_dist1 = pow(pow((out_vertices[j].x - Joint_List[nearest_child].position.x), 2) +
+					pow((out_vertices[j].y - Joint_List[nearest_child].position.y), 2) +
+					pow((out_vertices[j].z - Joint_List[nearest_child].position.z), 2), 0.5f);
+				joint_dist2 = pow(pow((out_vertices[j].x - Joint_List[nearest_joint].position.x), 2) +
+					pow((out_vertices[j].y - Joint_List[nearest_joint].position.y), 2) +
+					pow((out_vertices[j].z - Joint_List[nearest_joint].position.z), 2), 0.5f);
+				joint_weight1 = 1 - (joint_dist1 / (joint_dist1 + joint_dist2));
+				joint_weight2 = 1 - joint_weight1;
+
+				// push three joints
+				tVertices.push_back(nearest_child);
+				tVertices.push_back(nearest_joint);
+				tVertices.push_back(parent_id);
+				// push joint weights
+				tVertices.push_back(joint_weight1);
+				tVertices.push_back(joint_weight2);
+				// push bone weights
+				tVertices.push_back(bone1_weight);
+				tVertices.push_back(bone2_weight);
+			}
 		}
 		// set attributes for tVAO tVBO
 		glGenVertexArrays(1, &tVAO);
@@ -494,10 +595,16 @@ int main()
 		glBindVertexArray(tVAO);
 		glBindBuffer(GL_ARRAY_BUFFER, tVBO);
 		glBufferData(GL_ARRAY_BUFFER, tVertices.size()*sizeof(float), &tVertices[0], GL_STATIC_DRAW);
-		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 13 * sizeof(float), (void*)0);
 		glEnableVertexAttribArray(0); // pos
-		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 13 * sizeof(float), (void*)(3 * sizeof(float)));
 		glEnableVertexAttribArray(1); // normal
+		glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 13 * sizeof(float), (void*)(6 * sizeof(float)));
+		glEnableVertexAttribArray(2); // related joint id
+		glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, 13 * sizeof(float), (void*)(9 * sizeof(float)));
+		glEnableVertexAttribArray(3); // joint weights
+		glVertexAttribPointer(4, 2, GL_FLOAT, GL_FALSE, 13 * sizeof(float), (void*)(11 * sizeof(float)));
+		glEnableVertexAttribArray(4); // bone weights
 		//glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 14 * sizeof(float), (void*)(6 * sizeof(float)));
 		//glEnableVertexAttribArray(2); 
 		// push to VAO,VBO,NUM list
@@ -707,7 +814,20 @@ int main()
 		glBindTexture(GL_TEXTURE_2D, textureNormal);
 		glActiveTexture(GL_TEXTURE3);
 		glBindTexture(GL_TEXTURE_2D, textureEye);*/
-		my_shader.setVec3("Color", 0.8f,0.5f,0.5f);
+		//my_shader.setVec3("Color", 0.8f,0.5f,0.5f);
+		// pass weight painting colors to the shader
+		for (int i = 0; i < Joint_List.size(); ++i) {
+			std::string joint_color("jointList[].color");
+			joint_color.insert(10, std::to_string(i));
+			std::string joint_globalMat("jointList[].globalMat");
+			joint_globalMat.insert(10, std::to_string(i));
+			std::string joint_offsetMat("jointList[].offsetMat");
+			joint_offsetMat.insert(10, std::to_string(i));
+			my_shader.setVec3(joint_color, Joint_List[i].color);
+			my_shader.setMat4(joint_globalMat, Joint_List[i].GlobalMatrix);
+			my_shader.setMat4(joint_offsetMat, glm::inverse(Joint_List[i].restGlobalMatrix));
+		}
+
 		if (transparencySwitch == 1) {
 			my_shader.setFloat("alpha", 0.3);
 		}
@@ -853,7 +973,7 @@ void renderJoint(Shader shader, Joint joint ,glm::mat4 view, glm::mat4 projectio
 void addJoint() {
 	// new joint
 	if (currentID == Joint_List.size()) {
-		Joint temp(currentID, currentParent, cameraPos + glm::vec3(0.2f) * glm::normalize(cameraFront));
+		Joint temp(currentID, currentParent, cameraPos + glm::vec3(0.2f) * glm::normalize(cameraFront), glm::vec3(0,0,0));
 		// push to list
 		Joint_List.push_back(temp);
 		currentParent = currentID;
@@ -871,63 +991,207 @@ void addJoint() {
 }
 
 void setDefaultJoints() {
-	Joint newj(0, -1, glm::vec3(0.001691f, 0.566665f, 0.021455f));
+	float r = ((double)rand() / (RAND_MAX));
+	float g = ((double)rand() / (RAND_MAX));
+	float b = ((double)rand() / (RAND_MAX));
+	glm::vec3 c(r, g, b);
+	Joint newj(0, -1, glm::vec3(0.001691f, 0.566665f, 0.021455f), c);
 	Joint_List.push_back(newj);
-	newj = Joint(1, 0, glm::vec3(-0.000819, 0.481337, 0.121768));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(1, 0, glm::vec3(-0.000819, 0.481337, 0.121768), c);
+	Joint_List[0].child_list.push_back(1);
 	Joint_List.push_back(newj);
-	newj = Joint(2, 1, glm::vec3(-0.001076, 0.654315, 0.155140));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(2, 1, glm::vec3(-0.001076, 0.654315, 0.155140), c);
+	Joint_List[1].child_list.push_back(2);
 	Joint_List.push_back(newj);
-	newj = Joint(3, 2, glm::vec3(0.000657, 0.735756, 0.256516));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(3, 2, glm::vec3(0.000657, 0.735756, 0.256516), c);
+	Joint_List[2].child_list.push_back(3);
 	Joint_List.push_back(newj);
-	newj = Joint(4, 3, glm::vec3(-0.001294, 0.635072, 0.362139));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(4, 3, glm::vec3(-0.001294, 0.635072, 0.362139), c);
+	Joint_List[3].child_list.push_back(4);
 	Joint_List.push_back(newj);
-	newj = Joint(5, 0, glm::vec3(-0.043955, 0.440327, 0.161949));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(5, 0, glm::vec3(-0.043955, 0.440327, 0.161949), c);
+	Joint_List[0].child_list.push_back(5);
 	Joint_List.push_back(newj);
-	newj = Joint(6, 5, glm::vec3(-0.077542, 0.370297, 0.094476));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(6, 5, glm::vec3(-0.077542, 0.370297, 0.094476), c);
+	Joint_List[5].child_list.push_back(6);
 	Joint_List.push_back(newj);
-	newj = Joint(7, 6, glm::vec3(-0.075867, 0.210244, 0.046379));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(7, 6, glm::vec3(-0.075867, 0.210244, 0.046379), c);
+	Joint_List[6].child_list.push_back(7);
 	Joint_List.push_back(newj);
-	newj = Joint(8, 7, glm::vec3(-0.070106, 0.089600, 0.017584));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(8, 7, glm::vec3(-0.070106, 0.089600, 0.017584), c);
+	Joint_List[7].child_list.push_back(8);
 	Joint_List.push_back(newj);
-	newj = Joint(9, 8, glm::vec3(-0.069601, 0.045441, 0.021094));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(9, 8, glm::vec3(-0.069601, 0.045441, 0.021094), c);
+	Joint_List[8].child_list.push_back(9);
 	Joint_List.push_back(newj);
-	newj = Joint(10, 0, glm::vec3(0.052980, 0.442547, 0.160829));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(10, 0, glm::vec3(0.052980, 0.442547, 0.160829), c);
+	Joint_List[0].child_list.push_back(10);
 	Joint_List.push_back(newj);
-	newj = Joint(11, 10, glm::vec3(0.073885, 0.371108, 0.159506));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(11, 10, glm::vec3(0.073885, 0.371108, 0.159506), c);
+	Joint_List[10].child_list.push_back(11);
 	Joint_List.push_back(newj);
-	newj = Joint(12, 11, glm::vec3(0.070374, 0.232418, 0.290771));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(12, 11, glm::vec3(0.070374, 0.232418, 0.290771), c);
+	Joint_List[11].child_list.push_back(12);
 	Joint_List.push_back(newj);
-	newj = Joint(13, 12, glm::vec3(0.070706, 0.152662, 0.378457));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(13, 12, glm::vec3(0.070706, 0.152662, 0.378457), c);
+	Joint_List[12].child_list.push_back(13);
 	Joint_List.push_back(newj);
-	newj = Joint(14, 13, glm::vec3(0.069522, 0.105653, 0.415685));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(14, 13, glm::vec3(0.069522, 0.105653, 0.415685), c);
+	Joint_List[13].child_list.push_back(14);
 	Joint_List.push_back(newj);
-	newj = Joint(15, 0, glm::vec3(0.000392, 0.584464, -0.234979));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(15, 0, glm::vec3(0.000392, 0.584464, -0.234979), c);
+	Joint_List[0].child_list.push_back(15);
 	Joint_List.push_back(newj);
-	newj = Joint(16, 15, glm::vec3(-0.082763, 0.527925, -0.253043));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(16, 15, glm::vec3(-0.082763, 0.527925, -0.253043), c);
+	Joint_List[15].child_list.push_back(16);
 	Joint_List.push_back(newj);
-	newj = Joint(17, 16, glm::vec3(-0.077468, 0.402789, -0.333127));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(17, 16, glm::vec3(-0.077468, 0.402789, -0.333127), c);
+	Joint_List[16].child_list.push_back(17);
 	Joint_List.push_back(newj);
-	newj = Joint(18, 17, glm::vec3(-0.065810, 0.296157, -0.466499));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(18, 17, glm::vec3(-0.065810, 0.296157, -0.466499), c);
+	Joint_List[17].child_list.push_back(18);
 	Joint_List.push_back(newj);
-	newj = Joint(19, 18, glm::vec3(-0.069273, 0.141381, -0.531791));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(19, 18, glm::vec3(-0.069273, 0.141381, -0.531791), c);
+	Joint_List[18].child_list.push_back(19);
 	Joint_List.push_back(newj);
-	newj = Joint(20, 19, glm::vec3(-0.064983, 0.126961, -0.584126));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(20, 19, glm::vec3(-0.064983, 0.126961, -0.584126), c);
+	Joint_List[19].child_list.push_back(20);
 	Joint_List.push_back(newj);
-	newj = Joint(21, 15, glm::vec3(0.081760, 0.524731, -0.259197));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(21, 15, glm::vec3(0.081760, 0.524731, -0.259197), c);
+	Joint_List[15].child_list.push_back(21);
 	Joint_List.push_back(newj);
-	newj = Joint(22, 21, glm::vec3(0.065342, 0.392328, -0.304268));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(22, 21, glm::vec3(0.065342, 0.392328, -0.304268), c);
+	Joint_List[21].child_list.push_back(22);
 	Joint_List.push_back(newj);
-	newj = Joint(23, 22, glm::vec3(0.069011, 0.247179, -0.386741));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(23, 22, glm::vec3(0.069011, 0.247179, -0.386741), c);
+	Joint_List[22].child_list.push_back(23);
 	Joint_List.push_back(newj);
-	newj = Joint(24, 23, glm::vec3(0.063263, 0.091644, -0.419300));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(24, 23, glm::vec3(0.063263, 0.091644, -0.419300), c);
+	Joint_List[23].child_list.push_back(24);
 	Joint_List.push_back(newj);
-	newj = Joint(25, 24, glm::vec3(0.061767, 0.040162, -0.433945));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(25, 24, glm::vec3(0.061767, 0.040162, -0.433945), c);
+	Joint_List[24].child_list.push_back(25);
 	Joint_List.push_back(newj);
-	newj = Joint(26, 15, glm::vec3(0.001431, 0.575117, -0.384786));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(26, 15, glm::vec3(0.001431, 0.575117, -0.384786), c);
+	Joint_List[15].child_list.push_back(26);
 	Joint_List.push_back(newj);
-	newj = Joint(27, 26, glm::vec3(0.007507, 0.619909, -0.439229));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(27, 26, glm::vec3(0.007507, 0.619909, -0.439229), c);
+	Joint_List[26].child_list.push_back(27);
 	Joint_List.push_back(newj);
-	newj = Joint(28, 27, glm::vec3(0.015131, 0.634682, -0.548828));
+	r = ((double)rand() / (RAND_MAX));
+	g = ((double)rand() / (RAND_MAX));
+	b = ((double)rand() / (RAND_MAX));
+	c = glm::vec3(r, g, b);
+	newj = Joint(28, 27, glm::vec3(0.015131, 0.634682, -0.548828), c);
+	Joint_List[27].child_list.push_back(28);
 	Joint_List.push_back(newj);
 }
 

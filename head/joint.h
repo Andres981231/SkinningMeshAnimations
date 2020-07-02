@@ -26,8 +26,9 @@ public:
 	glm::mat4 LocalMatrix;			// local matrix, will change
 	glm::mat4 GlobalMatrix;			// lobal matrix, will change
 	glm::mat4 restGlobalMatrix;		// global matrix for rest pos, will not change
+	glm::vec3 color;				// joint color
 
-	Joint(int id, int pid, glm::vec3 pos) {
+	Joint(int id, int pid, glm::vec3 pos, glm::vec3 c) {
 		ID = id;
 		parent_ID = pid;
 		position = pos;
@@ -43,5 +44,7 @@ public:
 		LocalMatrix = glm::mat4(1.0f);
 		GlobalMatrix = glm::mat4(1.0f);
 		restGlobalMatrix = glm::mat4(1.0f);
+		// assign color
+		color = c;
 	}
 };
