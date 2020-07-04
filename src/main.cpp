@@ -16,6 +16,7 @@
 #include "../head/shader_m.h"
 #include "tiny_obj_loader.h"
 #include "../head/joint.h"
+#include <time.h>			// for frame animation
 
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -25,7 +26,7 @@
 /*-----------------------------------------------------------------------*/
 //Here are some mouse and keyboard function. You can change that.
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
-void processInput(GLFWwindow* window, Shader my_shader);
+void processInput(GLFWwindow* window);
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods);
@@ -60,10 +61,16 @@ float currentFrame;
 float yaw = -90.0;
 float pitch = 0;
 // static 
-int mode = -1; //0-camera mode, 1-edit mode, 2-operate mode
+int mode = -1; //0-camera mode, 1-edit mode, 2-paint mode, 3-FK mode, 4-IK mode, 5-playmode;
 int currentParent = -1;
 int currentID = 0;
+// which shader to render model
+bool isBuilt = false;
+Shader* model_shader;
 std::vector<Joint> Joint_List;
+// record frames
+int frameChoose = 0;
+std::vector<std::vector<Joint>> Frame_List;
 
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
 	if (mode == 1) {
@@ -137,16 +144,31 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 	}
 	if (glfwGetKey(window, GLFW_KEY_0) == GLFW_PRESS) {
 		mode = 0;
-		printf("camera mode, use wasd and mouse to look around.\n");
+		printf("camera mode, use WASD to move and mouse to look around.\n");
 	}
 	if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS) {
+		if (isBuilt) {
+			printf("can not edit bones!\n");
+			return;
+		}
 		mode = 1;
 		printf("edit mode: set joint manually\n");
 	}
-	if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS) {
-		mode = 2;
+	if (glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS) {
+		if (mode == 1) {
+			// after all joints are set, build local position and matrix for all of them
+			buildJoints();
+		}
+		mode = 3;
 		currentID = 0;
 		printf("operate mode: control joints to move or rotate\n");
+	}
+	if (glfwGetKey(window, GLFW_KEY_5) == GLFW_PRESS) { // play mode
+		if (Frame_List.size() == 0) {
+			printf("no frame recorded, can not play!\n"); return;
+		}
+		mode = 5;
+		printf("play!\n");
 	}
 	if (mode == 0) {
 		if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
@@ -197,7 +219,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 			}
 		}
 	}
-	if (mode == 2) {
+	if (mode == 3) {
 		if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
 			currentID += 1;
 			if (currentID > Joint_List.size()-1) { currentID = 0; }
@@ -210,15 +232,39 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 			printf("current parent joint: %d, ", currentParent);
 			printf("current choosen joint: %d\n", currentID);
 		}
+		if (glfwGetKey(window, GLFW_KEY_ENTER) == GLFW_PRESS) {
+			Frame_List.push_back(Joint_List);
+			printf("frame recorded!\n");
+		}
+	}
+	if (mode == 3 || mode == 4) {
+		if (Frame_List.size() != 0) { 
+			if (glfwGetKey(window, GLFW_KEY_MINUS) == GLFW_PRESS) {
+				frameChoose -= 1;
+				if (frameChoose <= -1) { frameChoose = Frame_List.size() - 1; }
+				printf("choose frame: %d\n", frameChoose);
+				Joint_List = Frame_List[frameChoose];
+			}
+			else if (glfwGetKey(window, GLFW_KEY_EQUAL) == GLFW_PRESS) {
+				frameChoose += 1;
+				if (frameChoose >= Frame_List.size()) {frameChoose = 0;}
+				printf("choose frame: %d\n", frameChoose);
+				Joint_List = Frame_List[frameChoose];
+			}
+			if (glfwGetKey(window, GLFW_KEY_P) == GLFW_PRESS) {
+				printf("frame %d replaced!\n", frameChoose);
+				Frame_List[frameChoose] = Joint_List;
+			}
+		}
 	}
 }
 
-void processInput(GLFWwindow* window, Shader my_shader)
+void processInput(GLFWwindow* window)
 {
 	/*currentFrame = glfwGetTime();
 	deltaTime = currentFrame - lastFrame;
 	lastFrame = currentFrame;*/
-	if (mode != 2) {	// move camera
+	if (mode != 3) {	// move camera
 		float cameraSpeed = 1.0f * deltaTime; // adjust accordingly
 		if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
 			glfwSetWindowShouldClose(window, true);
@@ -231,7 +277,7 @@ void processInput(GLFWwindow* window, Shader my_shader)
 		if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
 			cameraPos += glm::normalize(glm::cross(cameraFront, cameraUp)) * cameraSpeed;
 	}
-	if (mode == 2) {
+	if (mode == 3) {
 		float rotateSpeed = 15.0f * deltaTime;
 		if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) { // around forward axis
 			glm::mat4 ro = glm::mat4(1.0f);
@@ -378,8 +424,7 @@ int main()
 	}
 	// set default joints with global position
 	setDefaultJoints();
-	// after all joints are set, build local position and matrix for all of them
-	buildJoints();
+	
     // glfw: initialize and configure
     // ------------------------------
     glfwInit();
@@ -416,6 +461,7 @@ int main()
 	// Here you need to fill construct function of class Shader. And you need to understand other funtions in Shader.//
 	// Then, write code in shader_m.vs, shader_m.fs and shader_m.gs to finish the tasks.                             //
 	///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	Shader first_shader("../src/shader_begin.vs","../src/shader_begin.fs");
 	Shader my_shader(
 		"../src/shader_m.vs",
 		"../src/shader_m.fs"
@@ -445,9 +491,12 @@ int main()
 	std::vector<tinyobj::shape_t> shapes;
 	// no use
 	std::vector<tinyobj::material_t> materials;
+	/*char path[100];
+	std::cin >> path;*/
 	std::string if_load_succeed = tinyobj::LoadObj(shapes, materials,
 		"../model/horse.obj"
 	);
+	//std::string if_load_succeed = tinyobj::LoadObj(shapes, materials, path);
 	//printf("%s\n", if_load_succeed);
 	// three list for infomation of each shape
 	std::vector<unsigned int> obj_VBO_l, obj_VAO_l, obj_NUM_l;
@@ -704,18 +753,56 @@ int main()
 		glm::vec3(0.0f,  0.0f, -3.0f)
 	};
 	
+	setLightPara(first_shader, pointLightPositions);
 	setLightPara(my_shader, pointLightPositions);
 	setLightPara(jointShader, pointLightPositions);
 	// normal map switch
 	//my_shader.setBool("useNormalMap", true);
 
+	clock_t ltime = 0;
+	clock_t ctime = 0;
+	double duration = 0;
+	float clip = 0.0f;
+
     while (!glfwWindowShouldClose(window))
     {
+		// clock counter
+		ctime = clock();
+
+		if (mode == 5) {
+			duration = ((double)ctime - (double)ltime) / CLK_TCK;
+			if (duration >= 1.0 / 30.0) {   // 30 here is the total interpolation in one second
+				ltime = ctime;
+				clip += 1.0f / 30.0f;		// 30 here is the interpolation times between two frames
+				int frameNum = (int)clip;
+				if (frameNum >= Frame_List.size()) {
+					clip -= frameNum;
+					frameNum = 0;
+				}
+				float t = clip - frameNum;
+				//printf("%d, %f\n", frameNum, clip);
+				for (int i = 0; i < Joint_List.size(); i++) {
+
+					Joint_List[i].forward = glm::normalize((1 - t) * Frame_List[frameNum][i].forward + t * Frame_List[(frameNum + 1) % Frame_List.size()][i].forward);
+					Joint_List[i].up = glm::normalize((1 - t) * Frame_List[frameNum][i].up + t * Frame_List[(frameNum + 1) % Frame_List.size()][i].up);
+					Joint_List[i].right = glm::normalize((1 - t) * Frame_List[frameNum][i].right + t * Frame_List[(frameNum + 1) % Frame_List.size()][i].right);
+					Joint_List[i].LocalMatrix[0] = glm::vec4(Joint_List[i].forward, 0.0f);
+					Joint_List[i].LocalMatrix[1] = glm::vec4(Joint_List[i].up, 0.0f);
+					Joint_List[i].LocalMatrix[2] = glm::vec4(Joint_List[i].right, 0.0f);
+				}
+			}
+		}
         // input
         // -----
-        processInput(window,my_shader);
+        processInput(window);
 		// update global matrix
-		updateJoint();
+		if (isBuilt) {
+			model_shader = &my_shader;
+			updateJoint();
+		}
+		else {
+			model_shader = &first_shader;
+		}
         // render
         // ------
         glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
@@ -762,7 +849,7 @@ int main()
 		for (int i = 0; i < Joint_List.size(); ++i) {
 			renderJoint(jointShader, Joint_List[i], view, projection);
 		}
-		// target
+		// mode 1 cube cursor
 		if (mode == 1) {
 			jointShader.use();
 			jointShader.setMat4("projection", projection);
@@ -804,9 +891,9 @@ int main()
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		//  Render the object in .obj file. You need to set materials and wrap texture for objects.                    //
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-		my_shader.use();
-		my_shader.setInt("mat.diffuse", 1);
-		my_shader.setInt("mat.specular", 1);
+		(*model_shader).use();
+		(*model_shader).setInt("mat.diffuse", 1);
+		(*model_shader).setInt("mat.specular", 1);
 		//my_shader.setInt("normalMap", 2);
 		/*glActiveTexture(GL_TEXTURE1);
 		glBindTexture(GL_TEXTURE_2D, texturePika);
@@ -816,31 +903,37 @@ int main()
 		glBindTexture(GL_TEXTURE_2D, textureEye);*/
 		//my_shader.setVec3("Color", 0.8f,0.5f,0.5f);
 		// pass weight painting colors to the shader
-		for (int i = 0; i < Joint_List.size(); ++i) {
-			std::string joint_color("jointList[].color");
-			joint_color.insert(10, std::to_string(i));
-			std::string joint_globalMat("jointList[].globalMat");
-			joint_globalMat.insert(10, std::to_string(i));
-			std::string joint_offsetMat("jointList[].offsetMat");
-			joint_offsetMat.insert(10, std::to_string(i));
-			my_shader.setVec3(joint_color, Joint_List[i].color);
-			my_shader.setMat4(joint_globalMat, Joint_List[i].GlobalMatrix);
-			my_shader.setMat4(joint_offsetMat, glm::inverse(Joint_List[i].restGlobalMatrix));
+		if (isBuilt) {
+			for (int i = 0; i < Joint_List.size(); ++i) {
+				std::string joint_color("jointList[].color");
+				joint_color.insert(10, std::to_string(i));
+				std::string joint_globalMat("jointList[].globalMat");
+				joint_globalMat.insert(10, std::to_string(i));
+				std::string joint_offsetMat("jointList[].offsetMat");
+				joint_offsetMat.insert(10, std::to_string(i));
+				(*model_shader).setVec3(joint_color, Joint_List[i].color);
+				(*model_shader).setMat4(joint_globalMat, Joint_List[i].GlobalMatrix);
+				(*model_shader).setMat4(joint_offsetMat, glm::inverse(Joint_List[i].restGlobalMatrix));
+			}
+		}
+		else {
+			// give color to begin shader
+			(*model_shader).setVec3("Color", glm::vec3(0.8f,0.5f,0.5f));
 		}
 
 		if (transparencySwitch == 1) {
-			my_shader.setFloat("alpha", 0.3);
+			(*model_shader).setFloat("alpha", 0.3);
 		}
 		else {
-			my_shader.setFloat("alpha", 1.0);
+			(*model_shader).setFloat("alpha", 1.0);
 		}
 		
 
-		my_shader.setMat4("projection", projection);
-		my_shader.setMat4("view", view);
+		(*model_shader).setMat4("projection", projection);
+		(*model_shader).setMat4("view", view);
 		model = glm::mat4(1.0f);
-		my_shader.setMat4("model", model);
-		my_shader.setVec3("viewPos", cameraPos);
+		(*model_shader).setMat4("model", model);
+		(*model_shader).setVec3("viewPos", cameraPos);
 		//my_shader.setVec3("viewPos2VS", cameraPos);
 		for (int i = 0; i < obj_VAO_l.size(); i++) {
 			glBindVertexArray(obj_VAO_l[i]);
@@ -933,10 +1026,15 @@ void renderJoint(Shader shader, Joint joint ,glm::mat4 view, glm::mat4 projectio
 	}
 	
 	glm::mat4 model = glm::mat4(1.0f);
+	glm::vec3 fp, f1, f2, f3;
 	glm::vec4 temp = get_parent_globalM(joint) * glm::vec4(joint.local_position, 1.0f);
 	//printf("%f, %f, %f\n", temp[0], temp[1], temp[2]);
 	glm::vec3 changedPosition = glm::vec3(temp);
-	model = glm::translate(model, changedPosition);
+	if (isBuilt)
+		fp = changedPosition;
+	else
+		fp = joint.position;
+	model = glm::translate(model, fp);
 	model = glm::scale(model, glm::vec3(0.01f));
 	shader.setMat4("model", model);
 	shader.setFloat("alpha", 1);
@@ -945,7 +1043,11 @@ void renderJoint(Shader shader, Joint joint ,glm::mat4 view, glm::mat4 projectio
 	shader.setVec3("Color", 1.0, 0, 0);
 	model = glm::mat4(1.0f);
 	temp = get_parent_globalM(joint) * glm::vec4(joint.forward, 0.0f);
-	model = glm::translate(model, changedPosition + 0.01f* glm::normalize(glm::vec3(temp)));
+	if (isBuilt)
+		f1 = 0.01f * joint.forward;
+	else
+		f1 = 0.01f * glm::normalize(glm::vec3(temp));
+	model = glm::translate(model, fp + f1);
 	model = glm::scale(model, glm::vec3(0.005f));
 	shader.setMat4("model", model);
 	shader.setFloat("alpha", 1);
@@ -954,7 +1056,11 @@ void renderJoint(Shader shader, Joint joint ,glm::mat4 view, glm::mat4 projectio
 	shader.setVec3("Color", 0, 1, 0);
 	model = glm::mat4(1.0f);
 	temp = get_parent_globalM(joint) * glm::vec4(joint.up, 0.0f);
-	model = glm::translate(model, changedPosition + 0.01f* glm::normalize(glm::vec3(temp)));
+	if (isBuilt)
+		f2 = 0.01f * joint.up;
+	else
+		f2 = 0.01f * glm::normalize(glm::vec3(temp));
+	model = glm::translate(model, fp + f2);
 	model = glm::scale(model, glm::vec3(0.005f));
 	shader.setMat4("model", model);
 	shader.setFloat("alpha", 1);
@@ -963,7 +1069,11 @@ void renderJoint(Shader shader, Joint joint ,glm::mat4 view, glm::mat4 projectio
 	shader.setVec3("Color", 0, 0, 1);
 	model = glm::mat4(1.0f);
 	temp =  get_parent_globalM(joint) * glm::vec4(joint.right, 0.0f);
-	model = glm::translate(model, changedPosition + 0.01f* glm::normalize(glm::vec3(temp)));
+	if (isBuilt)
+		f3 = 0.01f * joint.right;
+	else
+		f3 = 0.01f * glm::normalize(glm::vec3(temp));
+	model = glm::translate(model, fp + f3);
 	model = glm::scale(model, glm::vec3(0.005f));
 	shader.setMat4("model", model);
 	shader.setFloat("alpha", 1);
@@ -1197,6 +1307,7 @@ void setDefaultJoints() {
 
 // after all joints are set, build local position and matrix for all of them
 void buildJoints() {
+	printf("buinding joints...\n");
 	for (int i = 0; i < Joint_List.size(); ++i)
 	{
 		
@@ -1206,63 +1317,21 @@ void buildJoints() {
 			Joint_List[i].LocalMatrix[1] = glm::vec4(Joint_List[i].up, 0.0f);
 			Joint_List[i].LocalMatrix[2] = glm::vec4(Joint_List[i].right, 0.0f);
 			Joint_List[i].LocalMatrix[3] = glm::vec4(Joint_List[i].local_position, 1.0f);
-			//joint.LocalMatrix = glm::transpose(joint.LocalMatrix);
 			Joint_List[i].GlobalMatrix = Joint_List[i].LocalMatrix;
 			Joint_List[i].restGlobalMatrix = Joint_List[i].GlobalMatrix;
-			/*printf("joint %d local matrix:\n", i);
-			printf("%f, %f, %f, %f\n", joint.LocalMatrix[0][0], joint.LocalMatrix[0][1], joint.LocalMatrix[0][2], joint.LocalMatrix[0][3]);
-			printf("%f, %f, %f, %f\n", joint.LocalMatrix[1][0], joint.LocalMatrix[1][1], joint.LocalMatrix[1][2], joint.LocalMatrix[1][3]);
-			printf("%f, %f, %f, %f\n", joint.LocalMatrix[2][0], joint.LocalMatrix[2][1], joint.LocalMatrix[2][2], joint.LocalMatrix[2][3]);
-			printf("%f, %f, %f, %f\n", joint.LocalMatrix[3][0], joint.LocalMatrix[3][1], joint.LocalMatrix[3][2], joint.LocalMatrix[3][3]);
-			printf("joint %d parent global matrix:\n", i);
-			printf("joint %d global matrix:\n", i);
-			printf("%f, %f, %f, %f\n", joint.GlobalMatrix[0][0], joint.GlobalMatrix[0][1], joint.GlobalMatrix[0][2], joint.GlobalMatrix[0][3]);
-			printf("%f, %f, %f, %f\n", joint.GlobalMatrix[1][0], joint.GlobalMatrix[1][1], joint.GlobalMatrix[1][2], joint.GlobalMatrix[1][3]);
-			printf("%f, %f, %f, %f\n", joint.GlobalMatrix[2][0], joint.GlobalMatrix[2][1], joint.GlobalMatrix[2][2], joint.GlobalMatrix[2][3]);
-			printf("%f, %f, %f, %f\n", joint.GlobalMatrix[3][0], joint.GlobalMatrix[3][1], joint.GlobalMatrix[3][2], joint.GlobalMatrix[3][3]);*/
 		}
 		else {
 			Joint_List[i].local_position = Joint_List[i].position - Joint_List[Joint_List[i].parent_ID].position;
-			//printf("%f, %f, %f\n", joint.local_position[0], joint.local_position[1], joint.local_position[2]);
 			Joint_List[i].LocalMatrix[0] = glm::vec4(Joint_List[i].forward, 0.0f);
 			Joint_List[i].LocalMatrix[1] = glm::vec4(Joint_List[i].up, 0.0f);
 			Joint_List[i].LocalMatrix[2] = glm::vec4(Joint_List[i].right, 0.0f);
 			Joint_List[i].LocalMatrix[3] = glm::vec4(Joint_List[i].local_position, 1.0f);
-			//joint.LocalMatrix = glm::transpose(joint.LocalMatrix);
-			/*printf("joint %d local matrix:\n", i);
-			printf("%f, %f, %f, %f\n", joint.LocalMatrix[0][0], joint.LocalMatrix[0][1], joint.LocalMatrix[0][2], joint.LocalMatrix[0][3]);
-			printf("%f, %f, %f, %f\n", joint.LocalMatrix[1][0], joint.LocalMatrix[1][1], joint.LocalMatrix[1][2], joint.LocalMatrix[1][3]);
-			printf("%f, %f, %f, %f\n", joint.LocalMatrix[2][0], joint.LocalMatrix[2][1], joint.LocalMatrix[2][2], joint.LocalMatrix[2][3]);
-			printf("%f, %f, %f, %f\n", joint.LocalMatrix[3][0], joint.LocalMatrix[3][1], joint.LocalMatrix[3][2], joint.LocalMatrix[3][3]);
-			printf("joint %d's parent %d global matrix:\n", i, joint.parent_ID);*/
-			//Joint parent = Joint_List[Joint_List[i].parent_ID];
-			/*printf("%f, %f, %f, %f\n", parent.GlobalMatrix[0][0], parent.GlobalMatrix[0][1], parent.GlobalMatrix[0][2], parent.GlobalMatrix[0][3]);
-			printf("%f, %f, %f, %f\n", parent.GlobalMatrix[1][0], parent.GlobalMatrix[1][1], parent.GlobalMatrix[1][2], parent.GlobalMatrix[1][3]);
-			printf("%f, %f, %f, %f\n", parent.GlobalMatrix[2][0], parent.GlobalMatrix[2][1], parent.GlobalMatrix[2][2], parent.GlobalMatrix[2][3]);
-			printf("%f, %f, %f, %f\n", parent.GlobalMatrix[3][0], parent.GlobalMatrix[3][1], parent.GlobalMatrix[3][2], parent.GlobalMatrix[3][3]);*/
 			Joint_List[i].GlobalMatrix =  Joint_List[Joint_List[i].parent_ID].GlobalMatrix * Joint_List[i].LocalMatrix;
-			/*printf("joint %d's parent %d local matrix:\n", i, joint.parent_ID);
-			printf("%f, %f, %f, %f\n", parent.LocalMatrix[0][0], parent.LocalMatrix[0][1], parent.LocalMatrix[0][2], parent.LocalMatrix[0][3]);
-			printf("%f, %f, %f, %f\n", parent.LocalMatrix[1][0], parent.LocalMatrix[1][1], parent.LocalMatrix[1][2], parent.LocalMatrix[1][3]);
-			printf("%f, %f, %f, %f\n", parent.LocalMatrix[2][0], parent.LocalMatrix[2][1], parent.LocalMatrix[2][2], parent.LocalMatrix[2][3]);
-			printf("%f, %f, %f, %f\n", parent.LocalMatrix[3][0], parent.LocalMatrix[3][1], parent.LocalMatrix[3][2], parent.LocalMatrix[3][3]);
-			printf("joint %d's parent %d local position:\n", i, joint.parent_ID);
-			printf("%f ,%f , %f\n", parent.local_position[0], parent.local_position[1], parent.local_position[2]);*/
-
-			/*printf("joint %d's parent %d global matrix:\n", i, joint.parent_ID);
-			printf("joint %d global matrix:\n",i);
-			printf("%f, %f, %f, %f\n", joint.GlobalMatrix[0][0], joint.GlobalMatrix[0][1], joint.GlobalMatrix[0][2],joint.GlobalMatrix[0][3]);
-			printf("%f, %f, %f, %f\n", joint.GlobalMatrix[1][0], joint.GlobalMatrix[1][1], joint.GlobalMatrix[1][2], joint.GlobalMatrix[1][3]);
-			printf("%f, %f, %f, %f\n", joint.GlobalMatrix[2][0], joint.GlobalMatrix[2][1], joint.GlobalMatrix[2][2], joint.GlobalMatrix[2][3]);
-			printf("%f, %f, %f, %f\n", joint.GlobalMatrix[3][0], joint.GlobalMatrix[3][1], joint.GlobalMatrix[3][2], joint.GlobalMatrix[3][3]);*/
 			Joint_List[i].restGlobalMatrix = Joint_List[i].GlobalMatrix;
 		}
-		/*printf("joint %d global matrix:\n",i);
-		printf("%f, %f, %f, %f\n", joint.GlobalMatrix[0][0], joint.GlobalMatrix[0][1], joint.GlobalMatrix[0][2],joint.GlobalMatrix[0][3]);
-		printf("%f, %f, %f, %f\n", joint.GlobalMatrix[1][0], joint.GlobalMatrix[1][1], joint.GlobalMatrix[1][2], joint.GlobalMatrix[1][3]);
-		printf("%f, %f, %f, %f\n", joint.GlobalMatrix[2][0], joint.GlobalMatrix[2][1], joint.GlobalMatrix[2][2], joint.GlobalMatrix[2][3]);
-		printf("%f, %f, %f, %f\n", joint.GlobalMatrix[3][0], joint.GlobalMatrix[3][1], joint.GlobalMatrix[3][2], joint.GlobalMatrix[3][3]);*/
 	}
+	isBuilt = true;
+	printf("build done!\n");
 }
 
 void updateJoint() {
