@@ -39,6 +39,7 @@ void setDefaultJoints();
 void buildJoints();
 void updateJoint();
 glm::mat4 get_parent_globalM(Joint joint);
+void IK(glm::vec3 IK_position, int joint_ID);
 
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
@@ -71,12 +72,20 @@ std::vector<Joint> Joint_List;
 // record frames
 int frameChoose = 0;
 std::vector<std::vector<Joint>> Frame_List;
+// default IK point position
+glm::vec3 IKp = glm::vec3(0.2f,0.15f,-0.15f);
 
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
 	if (mode == 1) {
 		if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
 			// add joint at current position
 			addJoint();
+		}
+	}
+	if(mode == 4) {
+		if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
+			// apply IK method to current joint and IK point
+			IK(IKp,currentID);
 		}
 	}
 }
@@ -163,6 +172,10 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 		currentID = 0;
 		printf("operate mode: control joints to move or rotate\n");
 	}
+	if (glfwGetKey(window, GLFW_KEY_4) == GLFW_PRESS) {
+		mode = 4;
+		printf("IK mode: move IK point and select joint to apply movement\n");
+	}
 	if (glfwGetKey(window, GLFW_KEY_5) == GLFW_PRESS) { // play mode
 		if (Frame_List.size() == 0) {
 			printf("no frame recorded, can not play!\n"); return;
@@ -235,6 +248,35 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 		if (glfwGetKey(window, GLFW_KEY_ENTER) == GLFW_PRESS) {
 			Frame_List.push_back(Joint_List);
 			printf("frame recorded!\n");
+		}
+	}
+	float IKpSpeed = 1.0f * deltaTime; // adjust accordingly
+	if (mode == 4) {
+		if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS){
+			IKp += IKpSpeed * cameraUp;
+		}
+		if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS){
+			IKp -= IKpSpeed * cameraUp;
+		}
+		if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS){
+			IKp -= glm::normalize(glm::cross(cameraFront, cameraUp)) * IKpSpeed;
+		}
+		if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS){
+			IKp += glm::normalize(glm::cross(cameraFront, cameraUp)) * IKpSpeed;
+		}			
+	}
+	if (mode == 4) {
+		if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) {
+			currentID += 1;
+			if (currentID > Joint_List.size() - 1) { currentID = 0; }
+			printf("current parent joint: %d, ", currentParent);
+			printf("current choosen joint: %d\n", currentID);
+		}
+		else if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) {
+			currentID -= 1;
+			if (currentID < 0) { currentID = Joint_List.size() - 1; }
+			printf("current parent joint: %d, ", currentParent);
+			printf("current choosen joint: %d\n", currentID);
 		}
 	}
 	if (mode == 3 || mode == 4) {
@@ -401,7 +443,61 @@ void get_vec2(std::vector<float> list, std::vector<glm::vec2>& vec)
 	}
 }
 
+// IK implement
+void look_at_IK_point(glm::vec3 IK_position, int joint_ID, int leaf_joint_ID)
+{
+	Joint leaf_joint =  Joint_List[leaf_joint_ID];
+	glm::vec4 leaf_joint_globalPOS = leaf_joint.GlobalMatrix * glm::vec4(0.0f,0.0f,0.0f,1.0f);
+	glm::vec4 a(0.00001f);
+	glm::mat4 aa(a,a,a,a);
+	glm::vec4 leaf_joint_localPOS = glm::inverse(Joint_List[joint_ID].GlobalMatrix + aa) * leaf_joint_globalPOS;
+	glm::vec4 IKpoint_localPOS = glm::inverse(Joint_List[joint_ID].GlobalMatrix + aa) * glm::vec4(IK_position,1.0f);
+	glm::vec3 leaf_joint_direction(leaf_joint_localPOS);
+	glm::vec3 IKpoint_direction(IKpoint_localPOS);
+	float cos_deltaAngle = glm::dot(glm::normalize(leaf_joint_direction), glm::normalize(IKpoint_direction));
+	if (cos_deltaAngle > 1 - 1e-6) { // 夹角太小pass
+        return;
+    }
+	float deltaAngle = glm::acos(cos_deltaAngle);
+    //deltaAngle = glm::clamp(deltaAngle, -limitAngle, limitAngle);// 一次旋转的度数不得超过限制角
+	glm::vec3 axis = glm::normalize(glm::cross(glm::normalize(leaf_joint_direction), glm::normalize(IKpoint_direction)));//旋转轴
+	glm::mat4 ro = glm::mat4(1.0f);
+	ro = glm::rotate(ro, deltaAngle, axis);
+	Joint_List[joint_ID].forward = glm::vec3(ro * glm::vec4(Joint_List[joint_ID].forward, 0.0f));
+	Joint_List[joint_ID].up = glm::vec3(ro * glm::vec4(Joint_List[joint_ID].up,0.0f));
+	Joint_List[joint_ID].right = glm::vec3(ro * glm::vec4(Joint_List[joint_ID].right, 0.0f));
+	Joint_List[joint_ID].LocalMatrix[0] = glm::vec4(Joint_List[joint_ID].forward, 0.0f);
+	Joint_List[joint_ID].LocalMatrix[1] = glm::vec4(Joint_List[joint_ID].up,0.0f);
+	Joint_List[joint_ID].LocalMatrix[2] = glm::vec4(Joint_List[joint_ID].right, 0.0f);
+	updateJoint();
+}
 
+void IK(glm::vec3 IK_position, int joint_ID)
+{
+	//std::cout << IK_position.x << " " << IK_position.y << " " << IK_position.z << std::endl;
+	if (Joint_List[joint_ID].child_list.empty() || Joint_List[joint_ID].child_list.size() > 1){
+		printf("Input joint illegal");
+		return;
+	}
+	Joint leaf_joint =  Joint_List[Joint_List[joint_ID].child_list[0]];
+	while(true){
+		if(leaf_joint.child_list.size() == 0 || leaf_joint.child_list.size() > 1){
+			break;
+		}
+		leaf_joint = Joint_List[leaf_joint.child_list[0]];
+	}
+	for(int i=0; i<10; i++){
+		Joint current_joint = Joint_List[leaf_joint.parent_ID];
+		while(true){
+			//std::cout << "current joint ID: " << current_joint.ID << "leaf joint ID: " << leaf_joint.ID << std::endl;
+			look_at_IK_point(IK_position,current_joint.ID,leaf_joint.ID);
+			if(current_joint.ID == joint_ID){ // 为旋转根节点
+				break;
+			}
+			current_joint = Joint_List[current_joint.parent_ID];
+		}
+	}
+}
 
 int main()
 {
@@ -882,6 +978,20 @@ int main()
 			model = glm::mat4(1.0f);
 			model = glm::translate(model, cameraPos + glm::vec3(0.2f) * glm::normalize(cameraFront) + glm::vec3(0, 0, 0.01f));
 			model = glm::scale(model, glm::vec3(0.005f));
+			jointShader.setMat4("model", model);
+			jointShader.setFloat("alpha", 0.5);
+			glDrawArrays(GL_TRIANGLES, 0, 36);
+		}
+		// render IK point
+		if (mode == 4) {
+			jointShader.use();
+			jointShader.setMat4("projection", projection);
+			jointShader.setMat4("view", view);
+			// set a static point to test IK
+			jointShader.setVec3("Color", 0.4, 0.4, 0.8);
+			model = glm::mat4(1.0f);
+			model = glm::translate(model, IKp);
+			model = glm::scale(model, glm::vec3(0.01f));
 			jointShader.setMat4("model", model);
 			jointShader.setFloat("alpha", 0.5);
 			glDrawArrays(GL_TRIANGLES, 0, 36);
