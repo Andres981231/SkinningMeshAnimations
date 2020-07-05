@@ -16,6 +16,7 @@
 #include "../head/shader_m.h"
 #include "tiny_obj_loader.h"
 #include "../head/joint.h"
+#include "../head/bone.h"
 #include <time.h>			// for frame animation
 
 
@@ -36,8 +37,10 @@ void setLightPara(Shader shader, glm::vec3* pointLightPositions);
 void renderJoint(Shader shader, Joint joint,glm::mat4 view, glm::mat4 projection);
 void addJoint();
 void setDefaultJoints();
+void setDefaultBones();
 void buildJoints();
 void updateJoint();
+glm::vec3 getPoint(GLfloat u, GLfloat v);
 glm::mat4 get_parent_globalM(Joint joint);
 void IK(glm::vec3 IK_position, int joint_ID);
 
@@ -69,11 +72,19 @@ int currentID = 0;
 bool isBuilt = false;
 Shader* model_shader;
 std::vector<Joint> Joint_List;
+std::vector<Bone> Bone_List;
 // record frames
 int frameChoose = 0;
 std::vector<std::vector<Joint>> Frame_List;
 // default IK point position
 glm::vec3 IKp = glm::vec3(0.2f,0.15f,-0.15f);
+
+bool isPainting = false;
+bool predefinedMode = true;
+int data1[60000];
+int data2[60000];
+float data3[60000];
+float data4[60000];
 
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
 	if (mode == 1) {
@@ -163,8 +174,16 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 		mode = 1;
 		printf("edit mode: set joint manually\n");
 	}
+	if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS) {
+		if (!isBuilt) {
+			buildJoints();
+		}
+		mode = 2;
+		predefinedMode = false;
+		printf("paint mode: doing weight painting manually\n");
+	}
 	if (glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS) {
-		if (mode == 1) {
+		if (!isBuilt) {
 			// after all joints are set, build local position and matrix for all of them
 			buildJoints();
 		}
@@ -230,6 +249,26 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 				Joint temp = Joint_List[i];
 				printf("joint information:\nid: %d,parent id: %d\nposition: %f, %f, %f\n\n", temp.ID, temp.parent_ID, temp.position.x, temp.position.y, temp.position.z);
 			}
+		}
+	}
+	if (mode == 2) {
+		if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_1) == GLFW_PRESS) {
+			isPainting = true;
+		}
+		else {
+			isPainting = false;
+		}
+		if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
+			currentID += 1;
+			if (currentID > Joint_List.size() - 1) { currentID = 0; }
+			printf("current parent joint: %d, ", currentParent);
+			printf("current choosen joint: %d\n", currentID);
+		}
+		else if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
+			currentID -= 1;
+			if (currentID < 0) { currentID = Joint_List.size() - 1; }
+			printf("current parent joint: %d, ", currentParent);
+			printf("current choosen joint: %d\n", currentID);
 		}
 	}
 	if (mode == 3) {
@@ -520,6 +559,7 @@ int main()
 	}
 	// set default joints with global position
 	setDefaultJoints();
+	setDefaultBones();
 	
     // glfw: initialize and configure
     // ------------------------------
@@ -565,7 +605,7 @@ int main()
 	//A shader for light visiable source
 	Shader lampShader("../src/lamp.vs", "../src/lamp.fs");
 	Shader jointShader("../src/joint.vs", "../src/joint.fs");
-	
+	Shader sphereShader("../src/sphere.vs", "../src/sphere.fs");
 
 
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -606,6 +646,7 @@ int main()
 	//glm::vec3 bakTangent(1, 0, 0);
 	//glm::vec3 bakBitangent(0, 1, 0);
 	//glm::vec3 lastT, lastB;
+	int count = 0;
 	for (int i = 0; i < shapes.size(); i++)
 	{
 		
@@ -621,140 +662,95 @@ int main()
 		std::vector<float> tVertices;
 		// all vertices of one shape
 		for (int j = 0; j < out_vertices.size(); j++) {
+			count += 1;
 			// pos
 			tVertices.push_back(out_vertices[j].x); tVertices.push_back(out_vertices[j].y); tVertices.push_back(out_vertices[j].z);
 			// normal
 			tVertices.push_back(out_normals[j].x); tVertices.push_back(out_normals[j].y); tVertices.push_back(out_normals[j].z);
-			// uvs
-			//tVertices.push_back(out_uvs[j].x); tVertices.push_back(out_uvs[j].y);
-			// T B
-			// one triangle one calculation
-			
-			// the other two vertices
 
-			// find nearest joint first
+			// find nearest bone
 			float nearest_dist = 9999;
-			int nearest_joint;
-			for (int k = 0; k < Joint_List.size(); k++) {
-				float dist = pow(pow((out_vertices[j].x - Joint_List[k].position.x), 2) +
-					pow((out_vertices[j].y - Joint_List[k].position.y), 2) +
-					pow((out_vertices[j].z - Joint_List[k].position.z), 2), 0.5f);
+			float nearest_bone;
+			for (int k = 0; k < Bone_List.size(); ++k) {
+				glm::vec3 bone_center = Bone_List[k].centerPos;
+				float dist = pow(pow((out_vertices[j].x - bone_center.x), 2) +
+					pow((out_vertices[j].y - bone_center.y), 2) +
+					pow((out_vertices[j].z - bone_center.z), 2), 0.5f);
 				if (dist < nearest_dist) {
+					nearest_bone = k;
 					nearest_dist = dist;
-					nearest_joint = k;
-				}
-			}
-			// find nearest child joint
-			nearest_dist = 9999;
-			int nearest_child = -1;
-			std::vector<int> childList = Joint_List[nearest_joint].child_list;
-			for (int k = 0; k < childList.size(); k++) {
-				int child_id = childList[k];
-				float dist = pow(pow((out_vertices[j].x - Joint_List[child_id].position.x), 2) +
-					pow((out_vertices[j].y - Joint_List[child_id].position.y), 2) +
-					pow((out_vertices[j].z - Joint_List[child_id].position.z), 2), 0.5f);
-				if (dist < nearest_dist) {
-					nearest_dist = dist;
-					nearest_child = child_id;
 				}
 			}
 
-			// calc bone's weight for the vertice
-			float bone1_weight, bone2_weight;
-			float bone1_dist = 9999;
-			float bone2_dist = 9999;
+			int p_id = Bone_List[nearest_bone].parentID;
+			int c_id = Bone_List[nearest_bone].childID;
+			float dist_to_p, dist_to_c;
+			dist_to_p = pow(pow((out_vertices[j].x - Joint_List[p_id].position.x), 2) +
+				pow((out_vertices[j].y - Joint_List[p_id].position.y), 2) +
+				pow((out_vertices[j].z - Joint_List[p_id].position.z), 2), 0.5f);
+			dist_to_c = pow(pow((out_vertices[j].x - Joint_List[c_id].position.x), 2) +
+				pow((out_vertices[j].y - Joint_List[c_id].position.y), 2) +
+				pow((out_vertices[j].z - Joint_List[c_id].position.z), 2), 0.5f);
+			float weight2 = 0.1 * dist_to_p / (dist_to_p + dist_to_c);
+			float weight1 = 1 - weight2;
 
-			if (nearest_child != -1)
-			{
-				glm::vec3 bone1_center((Joint_List[nearest_joint].position.x + Joint_List[nearest_child].position.x) / 2,
-					(Joint_List[nearest_joint].position.y + Joint_List[nearest_child].position.y) / 2,
-					(Joint_List[nearest_joint].position.z + Joint_List[nearest_child].position.z) / 2);
-				bone1_dist = pow(pow((out_vertices[j].x - bone1_center.x), 2) +
-					pow((out_vertices[j].y - bone1_center.y), 2) +
-					pow((out_vertices[j].z - bone1_center.z), 2), 0.5f);
-			}
-			int parent_id = Joint_List[nearest_joint].parent_ID;
-			if (parent_id != -1)
-			{
-				glm::vec3 bone2_center((Joint_List[nearest_joint].position.x + Joint_List[parent_id].position.x) / 2,
-					(Joint_List[nearest_joint].position.y + Joint_List[parent_id].position.y) / 2,
-					(Joint_List[nearest_joint].position.z + Joint_List[parent_id].position.z) / 2);
-				bone2_dist = pow(pow((out_vertices[j].x - bone2_center.x), 2) +
-					pow((out_vertices[j].y - bone2_center.y), 2) +
-					pow((out_vertices[j].z - bone2_center.z), 2), 0.5f);
-			}
-			// calc bones' weight according to the distance from vertice to bone's center
-			bone1_weight = 1 - (bone1_dist / (bone1_dist + bone2_dist));
-			bone2_weight = 1 - bone1_weight;
-
-			// calc joint weight to weight painting
-			float joint_weight1, joint_weight2;
-			float joint_dist1, joint_dist2;
-			if (bone1_dist > bone2_dist)
-			{
-				joint_dist1 = pow(pow((out_vertices[j].x - Joint_List[parent_id].position.x), 2) +
-					pow((out_vertices[j].y - Joint_List[parent_id].position.y), 2) +
-					pow((out_vertices[j].z - Joint_List[parent_id].position.z), 2), 0.5f);
-				joint_dist2 = pow(pow((out_vertices[j].x - Joint_List[nearest_joint].position.x), 2) +
-					pow((out_vertices[j].y - Joint_List[nearest_joint].position.y), 2) +
-					pow((out_vertices[j].z - Joint_List[nearest_joint].position.z), 2), 0.5f);
-				joint_weight1 = 1 - (joint_dist1 / (joint_dist1 + joint_dist2));
-				joint_weight2 = 1 - joint_weight1;
-
-				// push three joints
-				tVertices.push_back(parent_id);
-				tVertices.push_back(nearest_joint);
-				tVertices.push_back(nearest_child);
-				// push joint weights
-				tVertices.push_back(joint_weight1);
-				tVertices.push_back(joint_weight2);
-				// push bone weights
-				tVertices.push_back(bone2_weight);
-				tVertices.push_back(bone1_weight);
-			}
-			else {
-				joint_dist1 = pow(pow((out_vertices[j].x - Joint_List[nearest_child].position.x), 2) +
-					pow((out_vertices[j].y - Joint_List[nearest_child].position.y), 2) +
-					pow((out_vertices[j].z - Joint_List[nearest_child].position.z), 2), 0.5f);
-				joint_dist2 = pow(pow((out_vertices[j].x - Joint_List[nearest_joint].position.x), 2) +
-					pow((out_vertices[j].y - Joint_List[nearest_joint].position.y), 2) +
-					pow((out_vertices[j].z - Joint_List[nearest_joint].position.z), 2), 0.5f);
-				joint_weight1 = 1 - (joint_dist1 / (joint_dist1 + joint_dist2));
-				joint_weight2 = 1 - joint_weight1;
-
-				// push three joints
-				tVertices.push_back(nearest_child);
-				tVertices.push_back(nearest_joint);
-				tVertices.push_back(parent_id);
-				// push joint weights
-				tVertices.push_back(joint_weight1);
-				tVertices.push_back(joint_weight2);
-				// push bone weights
-				tVertices.push_back(bone1_weight);
-				tVertices.push_back(bone2_weight);
-			}
+			tVertices.push_back(p_id);
+			tVertices.push_back(c_id);
+			tVertices.push_back(weight1);
+			tVertices.push_back(weight2);
+			tVertices.push_back(count);
 		}
 		// set attributes for tVAO tVBO
 		glGenVertexArrays(1, &tVAO);
 		glGenBuffers(1, &tVBO);
 		glBindVertexArray(tVAO);
 		glBindBuffer(GL_ARRAY_BUFFER, tVBO);
-		glBufferData(GL_ARRAY_BUFFER, tVertices.size()*sizeof(float), &tVertices[0], GL_STATIC_DRAW);
-		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 13 * sizeof(float), (void*)0);
+		glBufferData(GL_ARRAY_BUFFER, tVertices.size() * sizeof(float), &tVertices[0], GL_STATIC_DRAW);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)0);
 		glEnableVertexAttribArray(0); // pos
-		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 13 * sizeof(float), (void*)(3 * sizeof(float)));
+		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(3 * sizeof(float)));
 		glEnableVertexAttribArray(1); // normal
-		glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 13 * sizeof(float), (void*)(6 * sizeof(float)));
+		glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(6 * sizeof(float)));
 		glEnableVertexAttribArray(2); // related joint id
-		glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, 13 * sizeof(float), (void*)(9 * sizeof(float)));
+		glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(8 * sizeof(float)));
 		glEnableVertexAttribArray(3); // joint weights
-		glVertexAttribPointer(4, 2, GL_FLOAT, GL_FALSE, 13 * sizeof(float), (void*)(11 * sizeof(float)));
-		glEnableVertexAttribArray(4); // bone weights
-		//glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 14 * sizeof(float), (void*)(6 * sizeof(float)));
-		//glEnableVertexAttribArray(2); 
+		glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(10 * sizeof(float)));
+		glEnableVertexAttribArray(4); // vertices id
 		// push to VAO,VBO,NUM list
 		obj_VBO_l.push_back(tVBO); obj_VAO_l.push_back(tVAO); obj_NUM_l.push_back(out_vertices.size());
 	}
+
+	for (int i = 0; i < 60000; ++i) {
+		data1[i] = -1;
+		data2[i] = -1;
+		data3[i] = 0.0;
+		data4[i] = 0.0;
+	}
+	GLuint ssbo1, ssbo2, ssbo3, ssbo4;
+	glGenBuffers(1, &ssbo1);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo1);
+	glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(data1), data1, GL_DYNAMIC_DRAW);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ssbo1);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0); // unbind
+
+	glGenBuffers(1, &ssbo2);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo2);
+	glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(data2), data2, GL_DYNAMIC_DRAW);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, ssbo2);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0); // unbind
+
+	glGenBuffers(1, &ssbo3);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo3);
+	glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(data3), data3, GL_DYNAMIC_DRAW);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, ssbo3);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0); // unbind
+
+	glGenBuffers(1, &ssbo4);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo4);
+	glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(data4), data4, GL_DYNAMIC_DRAW);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, ssbo4);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0); // unbind
+
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Render a box to show nice normal mapping.                                                                   //
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -828,6 +824,62 @@ int main()
 	// texture coords
 	//glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 14 * sizeof(float), (void*)(6 * sizeof(float)));
 	//glEnableVertexAttribArray(2);
+
+	GLuint Longitude = 60;
+	GLuint Latitude = 30;
+	GLfloat sphere_vertices[6 * 3 * 60 * 30 * 2];
+	GLfloat lon_step = 1.0f / Longitude;
+	GLfloat lat_step = 1.0f / Latitude;
+	GLuint offset = 0;
+	for (int lat = 0; lat < Latitude; lat++) {  // 纬线u
+		for (int lon = 0; lon < Longitude; lon++) { // 经线v
+			// 一次构造4个点，两个三角形，
+			glm::vec3 point1 = getPoint(lat * lat_step, lon * lon_step);
+			glm::vec3 point2 = getPoint((lat + 1) * lat_step, lon * lon_step);
+			glm::vec3 point3 = getPoint((lat + 1) * lat_step, (lon + 1) * lon_step);
+			glm::vec3 point4 = getPoint(lat * lat_step, (lon + 1) * lon_step);
+			memcpy(sphere_vertices + offset, glm::value_ptr(point1), 3 * sizeof(GLfloat));
+			offset += 3;
+			memcpy(sphere_vertices + offset, glm::value_ptr(point1), 3 * sizeof(GLfloat));
+			offset += 3;
+			memcpy(sphere_vertices + offset, glm::value_ptr(point4), 3 * sizeof(GLfloat));
+			offset += 3;
+			memcpy(sphere_vertices + offset, glm::value_ptr(point4), 3 * sizeof(GLfloat));
+			offset += 3;
+			memcpy(sphere_vertices + offset, glm::value_ptr(point3), 3 * sizeof(GLfloat));
+			offset += 3;
+			memcpy(sphere_vertices + offset, glm::value_ptr(point3), 3 * sizeof(GLfloat));
+			offset += 3;
+
+			memcpy(sphere_vertices + offset, glm::value_ptr(point1), 3 * sizeof(GLfloat));
+			offset += 3;
+			memcpy(sphere_vertices + offset, glm::value_ptr(point1), 3 * sizeof(GLfloat));
+			offset += 3;
+			memcpy(sphere_vertices + offset, glm::value_ptr(point3), 3 * sizeof(GLfloat));
+			offset += 3;
+			memcpy(sphere_vertices + offset, glm::value_ptr(point3), 3 * sizeof(GLfloat));
+			offset += 3;
+			memcpy(sphere_vertices + offset, glm::value_ptr(point2), 3 * sizeof(GLfloat));
+			offset += 3;
+			memcpy(sphere_vertices + offset, glm::value_ptr(point2), 3 * sizeof(GLfloat));
+			offset += 3;
+		}
+	}
+
+	unsigned int sphereVBO, sphereVAO;
+	glGenVertexArrays(1, &sphereVAO);
+	glGenBuffers(1, &sphereVBO);
+	glBindVertexArray(sphereVAO);
+
+	glBindBuffer(GL_ARRAY_BUFFER, sphereVBO);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(sphere_vertices), &sphere_vertices[0], GL_STATIC_DRAW);
+
+	// position attribute
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(GLfloat), (void*)0);
+	glEnableVertexAttribArray(0);
+	// normal attribute
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(GLfloat), (void*)0);
+	glEnableVertexAttribArray(1);
 	
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// You need to fill this function which is defined in my_texture.h. The parameter is the path of your image.   //
@@ -852,6 +904,7 @@ int main()
 	setLightPara(first_shader, pointLightPositions);
 	setLightPara(my_shader, pointLightPositions);
 	setLightPara(jointShader, pointLightPositions);
+	setLightPara(sphereShader, pointLightPositions);
 	// normal map switch
 	//my_shader.setBool("useNormalMap", true);
 
@@ -982,6 +1035,19 @@ int main()
 			jointShader.setFloat("alpha", 0.5);
 			glDrawArrays(GL_TRIANGLES, 0, 36);
 		}
+		if (mode == 2) {
+			glBindVertexArray(sphereVAO);
+			sphereShader.use();
+			sphereShader.setMat4("projection", projection);
+			sphereShader.setMat4("view", view);
+			sphereShader.setVec3("Color", 0.4, 0.4, 0.4);
+			model = glm::mat4(1.0f);
+			model = glm::translate(model, cameraPos + glm::vec3(0.2f) * glm::normalize(cameraFront));
+			model = glm::scale(model, glm::vec3(0.03f));
+			sphereShader.setMat4("model", model);
+			sphereShader.setFloat("alpha", 0.5);
+			glDrawArrays(GL_TRIANGLES, 0, 6 * 30 * 60);
+		}
 		// render IK point
 		if (mode == 4) {
 			jointShader.use();
@@ -1014,6 +1080,11 @@ int main()
 		//my_shader.setVec3("Color", 0.8f,0.5f,0.5f);
 		// pass weight painting colors to the shader
 		if (isBuilt) {
+			(*model_shader).setVec3("Color", 0.5f, 0.5f, 0.5f);
+			(*model_shader).setMat4("tokenModel", glm::translate(glm::mat4(1.0f), cameraPos + glm::vec3(0.2f) * glm::normalize(cameraFront)));
+			(*model_shader).setBool("isPainting", isPainting);
+			(*model_shader).setInt("currentJoint", currentID);
+			(*model_shader).setBool("predefinedMode", predefinedMode);
 			for (int i = 0; i < Joint_List.size(); ++i) {
 				std::string joint_color("jointList[].color");
 				joint_color.insert(10, std::to_string(i));
@@ -1463,4 +1534,27 @@ glm::mat4 get_parent_globalM(Joint joint) {
 	else {
 		return Joint_List[joint.parent_ID].GlobalMatrix;
 	}
+}
+
+void setDefaultBones() {
+	for (int i = 0; i < Joint_List.size(); ++i) {
+		for (int j = 0; j < Joint_List[i].child_list.size(); ++j) {
+			int child_id = Joint_List[i].child_list[j];
+			glm::vec3 center((Joint_List[i].position.x + Joint_List[child_id].position.x) / 2,
+				(Joint_List[i].position.y + Joint_List[child_id].position.y) / 2,
+				(Joint_List[i].position.z + Joint_List[child_id].position.z) / 2);
+			Bone new_bone(i, child_id, center);
+			Bone_List.push_back(new_bone);
+		}
+	}
+}
+
+glm::vec3 getPoint(GLfloat u, GLfloat v) {
+	GLfloat r = 0.9f;
+	GLfloat pi = glm::pi<GLfloat>();
+	GLfloat z = r * std::cos(pi * u);
+	GLfloat x = r * std::sin(pi * u) * std::cos(2 * pi * v);
+	GLfloat y = r * std::sin(pi * u) * std::sin(2 * pi * v);
+	// std::cout << x << "," << y << "," << z << std::endl;
+	return glm::vec3(x, y, z);
 }

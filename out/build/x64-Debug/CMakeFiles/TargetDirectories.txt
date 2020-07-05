@@ -1,0 +1,4 @@
+C:/Users/Andres/Desktop/SkinningMeshAnimations/out/build/x64-Debug/CMakeFiles/glad.dir
+C:/Users/Andres/Desktop/SkinningMeshAnimations/out/build/x64-Debug/CMakeFiles/edit_cache.dir
+C:/Users/Andres/Desktop/SkinningMeshAnimations/out/build/x64-Debug/CMakeFiles/skinning_mesh_animations.dir
+C:/Users/Andres/Desktop/SkinningMeshAnimations/out/build/x64-Debug/CMakeFiles/rebuild_cache.dir

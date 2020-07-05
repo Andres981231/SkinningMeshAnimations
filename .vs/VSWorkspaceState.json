@@ -1,9 +1,8 @@
 {
   "ExpandedNodes": [
     "",
-    "\\head",
     "\\src"
   ],
-  "SelectedNode": "\\src\\shader_m.vs",
+  "SelectedNode": "\\src\\main.cpp",
   "PreviewInSolutionExplorer": false
 }
