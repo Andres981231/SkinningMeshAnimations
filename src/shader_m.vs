@@ -43,7 +43,7 @@ uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
 uniform vec3 Color;
-uniform Joint jointList[29];
+uniform Joint jointList[50];
 uniform int currentJoint;
 uniform bool isPainting;
 uniform mat4 tokenModel;

@@ -37,7 +37,7 @@ void setLightPara(Shader shader, glm::vec3* pointLightPositions);
 void renderJoint(Shader shader, Joint joint,glm::mat4 view, glm::mat4 projection);
 void addJoint();
 void setDefaultJoints();
-void setDefaultBones();
+void setBones();
 void buildJoints();
 void updateJoint();
 glm::vec3 getPoint(GLfloat u, GLfloat v);
@@ -85,6 +85,13 @@ int data1[60000];
 int data2[60000];
 float data3[60000];
 float data4[60000];
+
+// how many shapes
+std::vector<tinyobj::shape_t> shapes;
+// three list for infomation of each shape
+std::vector<unsigned int> obj_VBO_l, obj_VAO_l, obj_NUM_l;
+// temp
+unsigned int tVBO, tVAO;
 
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
 	if (mode == 1) {
@@ -154,6 +161,10 @@ void mouse_callback(GLFWwindow* window, double xpos, double ypos)
 
 int transparencySwitch = 0;
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+	if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
+		setDefaultJoints();
+		buildJoints();
+	}
 	if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS) {
 		transparencySwitch = 1;
 		//printf("transparent now\n");
@@ -558,8 +569,8 @@ int main()
 		printf("camera mode, use wasd and mouse to look around.\n");
 	}
 	// set default joints with global position
-	setDefaultJoints();
-	setDefaultBones();
+	//setDefaultJoints();
+	//setBones();
 	
     // glfw: initialize and configure
     // ------------------------------
@@ -623,8 +634,6 @@ int main()
 	// Since i did not assign uv for noraml map, you just need use vt as uv for normal map, but you will find it is//
 	//  ugly. So please render a box to show a nice normal mapping. (Do normal mapping on obj and box)             //
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// how many shapes
-	std::vector<tinyobj::shape_t> shapes;
 	// no use
 	std::vector<tinyobj::material_t> materials;
 	/*char path[100];
@@ -634,10 +643,6 @@ int main()
 	);
 	//std::string if_load_succeed = tinyobj::LoadObj(shapes, materials, path);
 	//printf("%s\n", if_load_succeed);
-	// three list for infomation of each shape
-	std::vector<unsigned int> obj_VBO_l, obj_VAO_l, obj_NUM_l;
-	// temp
-	unsigned int tVBO, tVAO;
 	// calculation helper
 	//glm::vec3 edge1, edge2, tangent, bitangent;
 	//glm::vec2 deltaUV1, deltaUV2;
@@ -646,7 +651,6 @@ int main()
 	//glm::vec3 bakTangent(1, 0, 0);
 	//glm::vec3 bakBitangent(0, 1, 0);
 	//glm::vec3 lastT, lastB;
-	int count = 0;
 	for (int i = 0; i < shapes.size(); i++)
 	{
 		
@@ -657,48 +661,14 @@ int main()
 		// out_vertices, out_uvs, out_normals will get v, vt and vn.
 		make_face(shapes[i].mesh.positions, shapes[i].mesh.texcoords, shapes[i].mesh.normals, shapes[i].mesh.indices,
 			out_vertices, out_normals, out_uvs);
-		unsigned int tVBO, tVAO;
 		// temp tVertices able to change if i > 1? Yes
 		std::vector<float> tVertices;
 		// all vertices of one shape
 		for (int j = 0; j < out_vertices.size(); j++) {
-			count += 1;
 			// pos
 			tVertices.push_back(out_vertices[j].x); tVertices.push_back(out_vertices[j].y); tVertices.push_back(out_vertices[j].z);
 			// normal
 			tVertices.push_back(out_normals[j].x); tVertices.push_back(out_normals[j].y); tVertices.push_back(out_normals[j].z);
-
-			// find nearest bone
-			float nearest_dist = 9999;
-			float nearest_bone;
-			for (int k = 0; k < Bone_List.size(); ++k) {
-				glm::vec3 bone_center = Bone_List[k].centerPos;
-				float dist = pow(pow((out_vertices[j].x - bone_center.x), 2) +
-					pow((out_vertices[j].y - bone_center.y), 2) +
-					pow((out_vertices[j].z - bone_center.z), 2), 0.5f);
-				if (dist < nearest_dist) {
-					nearest_bone = k;
-					nearest_dist = dist;
-				}
-			}
-
-			int p_id = Bone_List[nearest_bone].parentID;
-			int c_id = Bone_List[nearest_bone].childID;
-			float dist_to_p, dist_to_c;
-			dist_to_p = pow(pow((out_vertices[j].x - Joint_List[p_id].position.x), 2) +
-				pow((out_vertices[j].y - Joint_List[p_id].position.y), 2) +
-				pow((out_vertices[j].z - Joint_List[p_id].position.z), 2), 0.5f);
-			dist_to_c = pow(pow((out_vertices[j].x - Joint_List[c_id].position.x), 2) +
-				pow((out_vertices[j].y - Joint_List[c_id].position.y), 2) +
-				pow((out_vertices[j].z - Joint_List[c_id].position.z), 2), 0.5f);
-			float weight2 = 0.1 * dist_to_p / (dist_to_p + dist_to_c);
-			float weight1 = 1 - weight2;
-
-			tVertices.push_back(p_id);
-			tVertices.push_back(c_id);
-			tVertices.push_back(weight1);
-			tVertices.push_back(weight2);
-			tVertices.push_back(count);
 		}
 		// set attributes for tVAO tVBO
 		glGenVertexArrays(1, &tVAO);
@@ -706,16 +676,10 @@ int main()
 		glBindVertexArray(tVAO);
 		glBindBuffer(GL_ARRAY_BUFFER, tVBO);
 		glBufferData(GL_ARRAY_BUFFER, tVertices.size() * sizeof(float), &tVertices[0], GL_STATIC_DRAW);
-		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)0);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
 		glEnableVertexAttribArray(0); // pos
-		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(3 * sizeof(float)));
+		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
 		glEnableVertexAttribArray(1); // normal
-		glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(6 * sizeof(float)));
-		glEnableVertexAttribArray(2); // related joint id
-		glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(8 * sizeof(float)));
-		glEnableVertexAttribArray(3); // joint weights
-		glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(10 * sizeof(float)));
-		glEnableVertexAttribArray(4); // vertices id
 		// push to VAO,VBO,NUM list
 		obj_VBO_l.push_back(tVBO); obj_VAO_l.push_back(tVAO); obj_NUM_l.push_back(out_vertices.size());
 	}
@@ -1264,14 +1228,18 @@ void renderJoint(Shader shader, Joint joint ,glm::mat4 view, glm::mat4 projectio
 void addJoint() {
 	// new joint
 	if (currentID == Joint_List.size()) {
-		Joint temp(currentID, currentParent, cameraPos + glm::vec3(0.2f) * glm::normalize(cameraFront), glm::vec3(0,0,0));
+		float r = ((double)rand() / (RAND_MAX));
+		float g = ((double)rand() / (RAND_MAX));
+		float b = ((double)rand() / (RAND_MAX));
+		Joint temp(currentID, currentParent, cameraPos + glm::vec3(0.2f) * glm::normalize(cameraFront), glm::vec3(r, g, b));
 		// push to list
 		Joint_List.push_back(temp);
-		currentParent = currentID;
-		currentID = Joint_List.size();
-		if (currentParent != -1) {
+		if (currentID != 0) {
 			Joint_List[currentParent].child_list.push_back(currentID);
 		}
+		currentParent = currentID;
+		currentID = Joint_List.size();
+
 		printf("current parent joint: %d, ", currentParent);
 		printf("current choosen joint: %d\n", currentID);
 	}
@@ -1282,6 +1250,8 @@ void addJoint() {
 }
 
 void setDefaultJoints() {
+	Joint_List.clear();
+	predefinedMode = true;
 	float r = ((double)rand() / (RAND_MAX));
 	float g = ((double)rand() / (RAND_MAX));
 	float b = ((double)rand() / (RAND_MAX));
@@ -1488,10 +1458,10 @@ void setDefaultJoints() {
 
 // after all joints are set, build local position and matrix for all of them
 void buildJoints() {
-	printf("buinding joints...\n");
+	printf("building joints...\n");
+	setBones();
 	for (int i = 0; i < Joint_List.size(); ++i)
 	{
-		
 		if (Joint_List[i].parent_ID == -1) {
 			Joint_List[i].local_position = Joint_List[i].position;
 			Joint_List[i].LocalMatrix[0] = glm::vec4(Joint_List[i].forward, 0.0f);
@@ -1511,6 +1481,117 @@ void buildJoints() {
 			Joint_List[i].restGlobalMatrix = Joint_List[i].GlobalMatrix;
 		}
 	}
+
+	obj_VBO_l.clear();
+	obj_VAO_l.clear();
+	obj_NUM_l.clear();
+	int count = 0;
+	for (int i = 0; i < shapes.size(); i++)
+	{
+
+		std::vector < glm::vec3 > out_vertices;
+		std::vector < glm::vec2 > out_uvs;
+		std::vector < glm::vec3 > out_normals;
+
+		// out_vertices, out_uvs, out_normals will get v, vt and vn.
+		make_face(shapes[i].mesh.positions, shapes[i].mesh.texcoords, shapes[i].mesh.normals, shapes[i].mesh.indices,
+			out_vertices, out_normals, out_uvs);
+		// temp tVertices able to change if i > 1? Yes
+		std::vector<float> tVertices;
+		// all vertices of one shape
+		for (int j = 0; j < out_vertices.size(); j++) {
+			count += 1;
+			// pos
+			tVertices.push_back(out_vertices[j].x); tVertices.push_back(out_vertices[j].y); tVertices.push_back(out_vertices[j].z);
+			// normal
+			tVertices.push_back(out_normals[j].x); tVertices.push_back(out_normals[j].y); tVertices.push_back(out_normals[j].z);
+
+			// find nearest bone
+			float nearest_dist = 9999;
+			float nearest_bone;
+			for (int k = 0; k < Bone_List.size(); ++k) {
+				glm::vec3 bone_center = Bone_List[k].centerPos;
+				float dist = pow(pow((out_vertices[j].x - bone_center.x), 2) +
+					pow((out_vertices[j].y - bone_center.y), 2) +
+					pow((out_vertices[j].z - bone_center.z), 2), 0.5f);
+				if (dist < nearest_dist) {
+					nearest_bone = k;
+					nearest_dist = dist;
+				}
+			}
+
+			int p_id = Bone_List[nearest_bone].parentID;
+			int c_id = Bone_List[nearest_bone].childID;
+
+			glm::vec3 p_to_c = Joint_List[c_id].position - Joint_List[p_id].position;
+			glm::vec3 c_to_p = Joint_List[p_id].position - Joint_List[c_id].position;
+			glm::vec3 p_to_v = out_vertices[j] - Joint_List[p_id].position;
+			glm::vec3 c_to_v = out_vertices[j] - Joint_List[c_id].position;
+
+			if (glm::dot(p_to_c, p_to_v) >= 0 && glm::dot(c_to_p, c_to_v) >= 0) {
+				// nothing
+			}
+			if (glm::dot(p_to_c, p_to_v) >= 0 && glm::dot(c_to_p, c_to_v) < 0 && !Joint_List[c_id].child_list.empty()) {
+				p_id = c_id;
+				int new_c_id;
+				float min_dist = 9999;
+				for (int k = 0; k < Joint_List[c_id].child_list.size(); ++k) {
+					int tmp = Joint_List[c_id].child_list[k];
+					float dist = pow(pow((out_vertices[j].x - Joint_List[tmp].position.x), 2) +
+						pow((out_vertices[j].y - Joint_List[tmp].position.y), 2) +
+						pow((out_vertices[j].z - Joint_List[tmp].position.z), 2), 0.5f);
+					if (dist < min_dist) {
+						min_dist = dist;
+						new_c_id = tmp;
+					}
+				}
+				c_id = new_c_id;
+			}
+			if (glm::dot(p_to_c, p_to_v) < 0 && glm::dot(c_to_p, c_to_v) >= 0 && Joint_List[p_id].parent_ID != -1) {
+				c_id = p_id;
+				p_id = Joint_List[p_id].parent_ID;
+			}
+
+			float dist_to_p, dist_to_c;
+			dist_to_p = pow(pow((out_vertices[j].x - Joint_List[p_id].position.x), 2) +
+				pow((out_vertices[j].y - Joint_List[p_id].position.y), 2) +
+				pow((out_vertices[j].z - Joint_List[p_id].position.z), 2), 0.5f);
+			dist_to_c = pow(pow((out_vertices[j].x - Joint_List[c_id].position.x), 2) +
+				pow((out_vertices[j].y - Joint_List[c_id].position.y), 2) +
+				pow((out_vertices[j].z - Joint_List[c_id].position.z), 2), 0.5f);
+
+			float weight1, weight2;
+			weight2 = 0.2 * dist_to_p / (dist_to_p + dist_to_c);
+			weight1 = 1 - weight2;
+
+
+
+			tVertices.push_back(p_id);
+			tVertices.push_back(c_id);
+			tVertices.push_back(weight1);
+			tVertices.push_back(weight2);
+			tVertices.push_back(count);
+		}
+		// set attributes for tVAO tVBO
+		glGenVertexArrays(1, &tVAO);
+		glGenBuffers(1, &tVBO);
+		glBindVertexArray(tVAO);
+		glBindBuffer(GL_ARRAY_BUFFER, tVBO);
+		glBufferData(GL_ARRAY_BUFFER, tVertices.size() * sizeof(float), &tVertices[0], GL_STATIC_DRAW);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)0);
+		glEnableVertexAttribArray(0); // pos
+		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(3 * sizeof(float)));
+		glEnableVertexAttribArray(1); // normal
+		glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(6 * sizeof(float)));
+		glEnableVertexAttribArray(2); // related joint id
+		glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(8 * sizeof(float)));
+		glEnableVertexAttribArray(3); // joint weights
+		glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(10 * sizeof(float)));
+		glEnableVertexAttribArray(4); // vertices id
+		// push to VAO,VBO,NUM list
+		obj_VBO_l.push_back(tVBO); obj_VAO_l.push_back(tVAO); obj_NUM_l.push_back(out_vertices.size());
+	}
+
 	isBuilt = true;
 	printf("build done!\n");
 }
@@ -1536,7 +1617,8 @@ glm::mat4 get_parent_globalM(Joint joint) {
 	}
 }
 
-void setDefaultBones() {
+void setBones() {
+	Bone_List.clear();
 	for (int i = 0; i < Joint_List.size(); ++i) {
 		for (int j = 0; j < Joint_List[i].child_list.size(); ++j) {
 			int child_id = Joint_List[i].child_list[j];
