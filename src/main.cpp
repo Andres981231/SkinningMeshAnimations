@@ -43,6 +43,8 @@ void updateJoint();
 glm::vec3 getPoint(GLfloat u, GLfloat v);
 glm::mat4 get_parent_globalM(Joint joint);
 void IK(glm::vec3 IK_position, int joint_ID);
+void updateJointAngle(int joint_ID, float angle_lower_bound);
+void IK_onestep(glm::vec3 IK_position, int joint_ID);
 
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
@@ -104,6 +106,10 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 		if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
 			// apply IK method to current joint and IK point
 			IK(IKp,currentID);
+		}
+		if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+			// apply IK method to current joint and IK point only one bone
+			IK_onestep(IKp,currentID);
 		}
 	}
 }
@@ -520,6 +526,43 @@ void look_at_IK_point(glm::vec3 IK_position, int joint_ID, int leaf_joint_ID)
 	Joint_List[joint_ID].LocalMatrix[1] = glm::vec4(Joint_List[joint_ID].up,0.0f);
 	Joint_List[joint_ID].LocalMatrix[2] = glm::vec4(Joint_List[joint_ID].right, 0.0f);
 	updateJoint();
+	updateJointAngle(joint_ID, 0.2f * 3.14f);
+}
+
+// update joint angle for clamping rotation
+void updateJointAngle(int joint_ID, float angle_lower_bound)
+{
+	//printf("Start update joint angle.\n");
+	Joint joint = Joint_List[joint_ID];
+	if(joint.parent_ID == -1 || joint.child_list.empty() || joint.child_list.size() > 1) return;
+	Joint child_joint = Joint_List[joint.child_list[0]];
+	glm::vec3 child_POS = glm::vec3(joint.LocalMatrix * glm::vec4(child_joint.local_position,1.0f));
+	glm::vec3 joint_POS = joint.local_position;
+	glm::vec3 parent_POS = glm::vec3(0.0f, 0.0f, 0.0f);
+	glm::vec3 joint_child_direction = child_POS - joint_POS;
+	glm::vec3 joint_parent_direction = parent_POS - joint_POS;
+	float cos_Angle = glm::dot(glm::normalize(joint_child_direction), glm::normalize(joint_parent_direction));
+	float Angle = 0.0f;
+	if (cos_Angle > 1 - 1e-6) {
+        Angle = 0.0f;
+    }
+	else{
+		Angle = glm::acos(cos_Angle);
+	}
+	
+	if (Angle < angle_lower_bound){
+		//std::cout << "angle: " << Angle << std::endl;
+		glm::vec3 axis = glm::normalize(glm::cross(glm::normalize(joint_parent_direction), glm::normalize(joint_child_direction)));
+		glm::mat4 ro = glm::mat4(1.0f);
+		ro = glm::rotate(ro, angle_lower_bound - Angle, axis);
+		Joint_List[joint_ID].forward = glm::vec3(ro * glm::vec4(Joint_List[joint_ID].forward, 0.0f));
+		Joint_List[joint_ID].up = glm::vec3(ro * glm::vec4(Joint_List[joint_ID].up,0.0f));
+		Joint_List[joint_ID].right = glm::vec3(ro * glm::vec4(Joint_List[joint_ID].right, 0.0f));
+		Joint_List[joint_ID].LocalMatrix[0] = glm::vec4(Joint_List[joint_ID].forward, 0.0f);
+		Joint_List[joint_ID].LocalMatrix[1] = glm::vec4(Joint_List[joint_ID].up,0.0f);
+		Joint_List[joint_ID].LocalMatrix[2] = glm::vec4(Joint_List[joint_ID].right, 0.0f);
+		updateJoint();
+	}
 }
 
 void IK(glm::vec3 IK_position, int joint_ID)
@@ -547,6 +590,16 @@ void IK(glm::vec3 IK_position, int joint_ID)
 			current_joint = Joint_List[current_joint.parent_ID];
 		}
 	}
+}
+
+void IK_onestep(glm::vec3 IK_position, int joint_ID)
+{
+	//std::cout << IK_position.x << " " << IK_position.y << " " << IK_position.z << std::endl;
+	if (Joint_List[joint_ID].child_list.empty() || Joint_List[joint_ID].child_list.size() > 1){
+		printf("Input joint illegal");
+		return;
+	}
+	look_at_IK_point(IK_position, joint_ID, Joint_List[Joint_List[joint_ID].child_list[0]].ID);
 }
 
 int main()
@@ -1014,16 +1067,14 @@ int main()
 		}
 		// render IK point
 		if (mode == 4) {
-			jointShader.use();
-			jointShader.setMat4("projection", projection);
-			jointShader.setMat4("view", view);
+			lampShader.use();
+			lampShader.setMat4("projection", projection);
+			lampShader.setMat4("view", view);
 			// set a static point to test IK
-			jointShader.setVec3("Color", 0.4, 0.4, 0.8);
 			model = glm::mat4(1.0f);
 			model = glm::translate(model, IKp);
 			model = glm::scale(model, glm::vec3(0.01f));
-			jointShader.setMat4("model", model);
-			jointShader.setFloat("alpha", 0.5);
+			lampShader.setMat4("model", model);
 			glDrawArrays(GL_TRIANGLES, 0, 36);
 		}
 
