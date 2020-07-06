@@ -106,6 +106,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 		if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
 			// apply IK method to current joint and IK point
 			IK(IKp,currentID);
+			std::cout << "x:" << IKp.x << "y:" << IKp.y << "z:" << IKp.z << std::endl;
 		}
 		if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
 			// apply IK method to current joint and IK point only one bone
@@ -170,6 +171,14 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 	if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
 		setDefaultJoints();
 		buildJoints();
+		Joint_List[7].IsKnee();
+		Joint_List[8].IsKnee();
+		Joint_List[12].IsKnee();
+		Joint_List[13].IsKnee();
+		Joint_List[18].IsKnee();
+		Joint_List[19].IsKnee();
+		Joint_List[23].IsKnee();
+		Joint_List[24].IsKnee();
 	}
 	if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS) {
 		transparencySwitch = 1;
@@ -306,7 +315,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 			printf("frame recorded!\n");
 		}
 	}
-	float IKpSpeed = 1.0f * deltaTime; // adjust accordingly
+	float IKpSpeed = 2.0f * deltaTime; // adjust accordingly
 	if (mode == 4) {
 		if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS){
 			IKp += IKpSpeed * cameraUp;
@@ -565,6 +574,39 @@ void updateJointAngle(int joint_ID, float angle_lower_bound)
 	}
 }
 
+void Rotate_Knee(glm::vec3 IK_position, int joint_ID, int leaf_joint_ID)
+{
+	Joint leaf_joint =  Joint_List[leaf_joint_ID];
+	glm::vec4 leaf_joint_globalPOS = leaf_joint.GlobalMatrix * glm::vec4(0.0f,0.0f,0.0f,1.0f);
+	glm::vec4 a(0.00001f);
+	glm::mat4 aa(a,a,a,a);
+	glm::vec4 leaf_joint_localPOS = glm::inverse(Joint_List[joint_ID].GlobalMatrix + aa) * leaf_joint_globalPOS;
+	glm::vec4 IKpoint_localPOS = glm::inverse(Joint_List[joint_ID].GlobalMatrix + aa) * glm::vec4(IK_position,1.0f);
+	glm::vec3 leaf_joint_direction(leaf_joint_localPOS);
+	glm::vec3 IKpoint_direction(IKpoint_localPOS);
+	leaf_joint_direction.x = 0.0f;
+	IKpoint_direction.x = 0.0f;
+	float cos_deltaAngle = glm::dot(glm::normalize(leaf_joint_direction), glm::normalize(IKpoint_direction));
+	if (cos_deltaAngle > 1 - 1e-6) { // 夹角太小pass
+        return;
+    }
+	float deltaAngle = glm::acos(cos_deltaAngle);
+	float angle_min = Joint_List[joint_ID].angle_min - Joint_List[joint_ID].current_angle;
+	float angle_max = Joint_List[joint_ID].angle_max - Joint_List[joint_ID].current_angle;
+    deltaAngle = glm::clamp(deltaAngle, angle_min, angle_max);// 一次旋转的度数不得超过限制角
+	glm::vec3 axis = Joint_List[joint_ID].axis;//旋转轴
+	glm::mat4 ro = glm::mat4(1.0f);
+	ro = glm::rotate(ro, deltaAngle, axis);
+	Joint_List[joint_ID].forward = glm::vec3(ro * glm::vec4(Joint_List[joint_ID].forward, 0.0f));
+	Joint_List[joint_ID].up = glm::vec3(ro * glm::vec4(Joint_List[joint_ID].up,0.0f));
+	Joint_List[joint_ID].right = glm::vec3(ro * glm::vec4(Joint_List[joint_ID].right, 0.0f));
+	Joint_List[joint_ID].LocalMatrix[0] = glm::vec4(Joint_List[joint_ID].forward, 0.0f);
+	Joint_List[joint_ID].LocalMatrix[1] = glm::vec4(Joint_List[joint_ID].up,0.0f);
+	Joint_List[joint_ID].LocalMatrix[2] = glm::vec4(Joint_List[joint_ID].right, 0.0f);
+	updateJoint();
+	Joint_List[joint_ID].current_angle += deltaAngle;
+}
+
 void IK(glm::vec3 IK_position, int joint_ID)
 {
 	//std::cout << IK_position.x << " " << IK_position.y << " " << IK_position.z << std::endl;
@@ -583,7 +625,12 @@ void IK(glm::vec3 IK_position, int joint_ID)
 		Joint current_joint = Joint_List[leaf_joint.parent_ID];
 		while(true){
 			//std::cout << "current joint ID: " << current_joint.ID << "leaf joint ID: " << leaf_joint.ID << std::endl;
-			look_at_IK_point(IK_position,current_joint.ID,leaf_joint.ID);
+			if (Joint_List[joint_ID].isknee){
+				Rotate_Knee(IK_position,current_joint.ID,leaf_joint.ID);
+			}
+			else{
+				look_at_IK_point(IK_position,current_joint.ID,leaf_joint.ID);
+			}
 			if(current_joint.ID == joint_ID){ // 为旋转根节点
 				break;
 			}
