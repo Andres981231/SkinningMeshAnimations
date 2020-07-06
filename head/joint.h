@@ -27,6 +27,11 @@ public:
 	glm::mat4 GlobalMatrix;			// lobal matrix, will change
 	glm::mat4 restGlobalMatrix;		// global matrix for rest pos, will not change
 	glm::vec3 color;				// joint color
+	bool isknee;					// 关节点是否有轴限制
+	glm::vec3 axis;					// 旋转轴
+	float angle_max;				// 旋转上限
+	float angle_min;				// 旋转下限
+	float current_angle;			// 当前旋转
 
 	Joint(int id, int pid, glm::vec3 pos, glm::vec3 c) {
 		ID = id;
@@ -46,5 +51,20 @@ public:
 		restGlobalMatrix = glm::mat4(1.0f);
 		// assign color
 		color = c;
+
+		// IK related
+		isknee = false;
+		axis = glm::vec3(0);
+		angle_max = 3.1415;
+		angle_min = -3.1415;
+		current_angle = 0;
+	}
+
+	void IsKnee()
+	{
+		isknee = true;
+		axis = glm::vec3(1.0f, 0.0f, 0.0f);
+		angle_max = 0.7 * 3.1415;
+		angle_min = 0;
 	}
 };
