@@ -106,7 +106,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 		if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
 			// apply IK method to current joint and IK point
 			IK(IKp,currentID);
-			std::cout << "x:" << IKp.x << "y:" << IKp.y << "z:" << IKp.z << std::endl;
+			//std::cout << "x:" << IKp.x << "y:" << IKp.y << "z:" << IKp.z << std::endl;
 		}
 		if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
 			// apply IK method to current joint and IK point only one bone
@@ -342,6 +342,10 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 			if (currentID < 0) { currentID = Joint_List.size() - 1; }
 			printf("current parent joint: %d, ", currentParent);
 			printf("current choosen joint: %d\n", currentID);
+		}
+		else if (glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS) {
+			Joint_List[currentID].IsKnee();
+			std::cout << "Joint" << currentID << " has been set as knee joint." << std::endl;
 		}
 	}
 	if (mode == 3 || mode == 4) {
