@@ -310,10 +310,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 			printf("current parent joint: %d, ", currentParent);
 			printf("current choosen joint: %d\n", currentID);
 		}
-		if (glfwGetKey(window, GLFW_KEY_ENTER) == GLFW_PRESS) {
-			Frame_List.push_back(Joint_List);
-			printf("frame recorded!\n");
-		}
+		
 	}
 	float IKpSpeed = 2.0f * deltaTime; // adjust accordingly
 	if (mode == 4) {
@@ -366,7 +363,12 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 				printf("frame %d replaced!\n", frameChoose);
 				Frame_List[frameChoose] = Joint_List;
 			}
+			
 		}
+		if (glfwGetKey(window, GLFW_KEY_ENTER) == GLFW_PRESS) {
+				Frame_List.push_back(Joint_List);
+				printf("frame recorded!\n");
+			}
 	}
 }
 
@@ -651,6 +653,7 @@ void IK_onestep(glm::vec3 IK_position, int joint_ID)
 		return;
 	}
 	look_at_IK_point(IK_position, joint_ID, Joint_List[Joint_List[joint_ID].child_list[0]].ID);
+
 }
 
 int main()
@@ -990,7 +993,7 @@ int main()
 			duration = ((double)ctime - (double)ltime) / CLK_TCK;
 			if (duration >= 1.0 / 30.0) {   // 30 here is the total interpolation in one second
 				ltime = ctime;
-				clip += 1.0f / 30.0f;		// 30 here is the interpolation times between two frames
+				clip += 1.0f / 15.0f;		// 30 here is the interpolation times between two frames
 				int frameNum = (int)clip;
 				if (frameNum >= Frame_List.size()) {
 					clip -= frameNum;
